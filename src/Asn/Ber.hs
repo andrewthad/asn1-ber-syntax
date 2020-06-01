@@ -1,8 +1,9 @@
 {-# language BangPatterns #-}
 {-# language BinaryLiterals #-}
-{-# language NumericUnderscores #-}
+{-# language DerivingStrategies #-}
 {-# language LambdaCase #-}
 {-# language MagicHash #-}
+{-# language NumericUnderscores #-}
 {-# language PatternSynonyms #-}
 {-# language TypeApplications #-}
 {-# language UnboxedTuples #-}
@@ -10,20 +11,28 @@
 module Asn.Ber
   ( Value(..)
   , decode
+    -- * Constructed Patterns
+  , pattern Set
+  , pattern Sequence
   ) where
 
+import Control.Monad (when)
 import Data.Bits ((.&.),testBit,unsafeShiftR)
 import Data.Bytes (Bytes)
 import Data.Bytes.Parser (Parser)
-import Data.Primitive (SmallArray,PrimArray)
-import Data.Word (Word8,Word32,Word64)
 import Data.Int (Int64)
-import Control.Monad (when)
+import Data.Primitive (SmallArray,PrimArray)
+import Data.Word (Word8,Word32)
 import GHC.Exts (Int(I#))
 import GHC.ST (ST(ST))
+import Data.ByteString.Short.Internal (ShortByteString(SBS))
+
+import qualified Data.Bytes as Bytes
 import qualified Data.Bytes.Parser as P
 import qualified Data.Bytes.Parser.Leb128 as Leb128
 import qualified Data.Primitive as PM
+import qualified Data.Text.Short as TS
+import qualified Data.Text.Short.Unsafe as TS
 import qualified GHC.Exts as Exts
 
 data Value
@@ -37,18 +46,21 @@ data Value
     -- ^ Tag number: @0x05@
   | ObjectIdentifier !(PrimArray Word32)
     -- ^ Tag number: @0x06@
-  | PrintableString {-# UNPACK #-} !Bytes
+  | Utf8String {-# UNPACK #-} !TS.ShortText
+    -- ^ Tag number: @0x0C@
+  | PrintableString {-# UNPACK #-} !TS.ShortText
     -- ^ Tag number: @0x13@
   | UtcTime
     -- ^ Tag number: @0x17@
   | Constructed !Class !Word32 !(SmallArray Value)
     -- ^ Constructed values. Includes the class, the tag, and the
     -- concatenated child values.
+  deriving stock (Show)
 
-pattern Sequence :: Word64
+pattern Sequence :: Word32
 pattern Sequence = 0x10
 
-pattern Set :: Word64
+pattern Set :: Word32
 pattern Set = 0x11
 
 data Class
@@ -56,6 +68,7 @@ data Class
   | Application
   | ContextSpecific
   | Private
+  deriving stock (Show)
 
 decode :: Bytes -> Either String Value
 decode = P.parseBytesEither parser
@@ -143,11 +156,40 @@ errorThunk :: a
 {-# noinline errorThunk #-}
 errorThunk = errorWithoutStackTrace "Asn.Ber: implementation mistake"
 
+utf8String :: Parser String s Value
+utf8String = do
+  n <- takeLength
+  bs <- P.take "while decoding UTF-8 string, not enough bytes" (fromIntegral n)
+  case TS.fromShortByteString (ba2sbs (Bytes.toByteArrayClone bs)) of
+    Nothing -> P.fail "found non-UTF-8 byte sequences in printable string"
+    Just r -> pure (Utf8String r)
+
 printableString :: Parser String s Value
 printableString = do
   n <- takeLength
   bs <- P.take "while decoding printable string, not enough bytes" (fromIntegral n)
-  pure (PrintableString bs)
+  if Bytes.all isPrintable bs
+    then pure $! PrintableString $! ba2stUnsafe $! Bytes.toByteArrayClone bs
+    else P.fail "found non-printable characters in printable string"
+
+isPrintable :: Word8 -> Bool
+isPrintable = \case
+  0x20 -> True
+  0x27 -> True
+  0x28 -> True
+  0x29 -> True
+  0x2B -> True
+  0x2C -> True
+  0x2D -> True
+  0x2E -> True
+  0x2F -> True
+  0x3A -> True
+  0x3D -> True
+  0x3F -> True
+  w | w >= 0x41 && w <= 0x5A -> True
+  w | w >= 0x61 && w <= 0x7A -> True
+  w | w >= 0x30 && w <= 0x39 -> True
+  _ -> False
 
 octetString :: Parser String s Value
 octetString = do
@@ -155,6 +197,8 @@ octetString = do
   bs <- P.take "while decoding octet string, not enough bytes" (fromIntegral n)
   pure (OctetString bs)
 
+-- The whole bit string thing is kind of janky, but SNMP does not use
+-- it, so it is not terribly important.
 bitString :: Parser String s Value
 bitString = do
   n <- takeLength
@@ -167,14 +211,14 @@ bitString = do
 integer :: Parser String s Value
 integer = do
   n <- takeLength
-  bs <- P.take "while decoding integer, not enough bytes" (fromIntegral n)
+  _ <- P.take "while decoding integer, not enough bytes" (fromIntegral n)
   pure (Integer 42)
 
 -- TODO: write this
 utcTime :: Parser String s Value
 utcTime = do
   n <- takeLength
-  bs <- P.take "while decoding utctime, not enough bytes" (fromIntegral n)
+  _ <- P.take "while decoding utctime, not enough bytes" (fromIntegral n)
   pure UtcTime
 
 nullParser :: Parser String s Value
@@ -199,6 +243,13 @@ parser = P.any "expected tag byte" >>= \case
   0x04 -> octetString
   0x05 -> nullParser
   0x06 -> objectIdentifier
+  0x0C -> utf8String
   0x17 -> utcTime
   b | testBit b 5 -> constructed (classFromUpperBits b) (b .&. 0b00011111)
     | otherwise -> P.fail ("unrecognized tag byte " ++ show b)
+
+ba2stUnsafe :: PM.ByteArray -> TS.ShortText
+ba2stUnsafe (PM.ByteArray x) = TS.fromShortByteStringUnsafe (SBS x)
+
+ba2sbs :: PM.ByteArray -> ShortByteString
+ba2sbs (PM.ByteArray x) = SBS x
