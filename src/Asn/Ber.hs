@@ -17,7 +17,7 @@ module Asn.Ber
   ) where
 
 import Control.Monad (when)
-import Data.Bits ((.&.),testBit,unsafeShiftR)
+import Data.Bits ((.&.),testBit,unsafeShiftR,unsafeShiftL,complement,clearBit)
 import Data.Bytes (Bytes)
 import Data.Bytes.Parser (Parser)
 import Data.Int (Int64)
@@ -207,12 +207,23 @@ bitString = do
   bs <- P.take "while decoding octet string, not enough bytes" (fromIntegral (n - 1))
   pure (BitString padding bs)
 
--- TODO: write this
 integer :: Parser String s Value
-integer = do
-  n <- takeLength
-  _ <- P.take "while decoding integer, not enough bytes" (fromIntegral n)
-  pure (Integer 42)
+integer = takeLength >>= \case
+  n | n <= 8 -> do
+    -- there are not zero-length integer encodings, in BER,
+    -- so a cons pattern will always succeed
+    content <- P.take "while decoding integer, not enough bytes" (fromIntegral n)
+    let isNegative = case Bytes.uncons content of
+          Just (hd, _) -> testBit hd 7
+          Nothing -> errorWithoutStackTrace "Asn.Ber.integer: programmer error"
+        loopBody acc b = acc `unsafeShiftL` 8 + fromIntegral @Word8 @Int64 b
+        unsigned = Bytes.foldl' loopBody 0 content
+    pure $ Integer $ if isNegative
+      then complement (clearBit unsigned (fromIntegral $ 8 * n - 1)) + 1
+      else unsigned
+    | otherwise -> do
+      -- TODO parse bignums
+      P.fail (show n ++ "-octet integer is too large to store in an Int64")
 
 -- TODO: write this
 utcTime :: Parser String s Value
