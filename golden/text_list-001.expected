@@ -1,0 +1,6 @@
+Constructed Universal 16
+    ( fromListN 2
+        [ Utf8String "aaa"
+        , Utf8String "bbb"
+        ]
+    )

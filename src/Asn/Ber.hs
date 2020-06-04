@@ -20,16 +20,16 @@ import Control.Monad (when)
 import Data.Bits ((.&.),testBit,unsafeShiftR,unsafeShiftL,complement,clearBit)
 import Data.Bytes (Bytes)
 import Data.Bytes.Parser (Parser)
+import Data.ByteString.Short.Internal (ShortByteString(SBS))
 import Data.Int (Int64)
 import Data.Primitive (SmallArray,PrimArray)
 import Data.Word (Word8,Word32)
 import GHC.Exts (Int(I#))
 import GHC.ST (ST(ST))
-import Data.ByteString.Short.Internal (ShortByteString(SBS))
 
 import qualified Data.Bytes as Bytes
 import qualified Data.Bytes.Parser as P
-import qualified Data.Bytes.Parser.Leb128 as Leb128
+import qualified Data.Bytes.Parser.Base128 as Base128
 import qualified Data.Primitive as PM
 import qualified Data.Text.Short as TS
 import qualified Data.Text.Short.Unsafe as TS
@@ -109,7 +109,7 @@ objectIdentifier = do
             pure (ObjectIdentifier res)
           False -> if ix < sz
             then do
-              w <- Leb128.word32 "bad oid fragment"
+              w <- Base128.word32 "bad oid fragment"
               P.effect (PM.writePrimArray buf ix w)
               go (ix + 1) sz buf
             else do
@@ -119,7 +119,8 @@ objectIdentifier = do
                 PM.copyMutablePrimArray newBuf 0 buf 0 sz
                 pure newBuf
               go ix newSz newBuf
-    go 0 initialSize buf0
+    go 2 initialSize buf0
+
 
 -- TODO: support big tags (where base tag equals 31)
 constructed :: Class -> Word8 -> Parser String s Value
