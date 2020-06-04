@@ -1,0 +1,7 @@
+Constructed Universal 16
+    ( fromListN 2
+        [ Utf8String "giantstring_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        , Constructed ContextSpecific 1
+            ( fromListN 1 [ Integer 50 ] )
+        ]
+    )

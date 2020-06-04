@@ -17,19 +17,19 @@ module Asn.Ber
   ) where
 
 import Control.Monad (when)
-import Data.Bits ((.&.),testBit,unsafeShiftR)
+import Data.Bits ((.&.),testBit,unsafeShiftR,unsafeShiftL,complement,clearBit)
 import Data.Bytes (Bytes)
 import Data.Bytes.Parser (Parser)
+import Data.ByteString.Short.Internal (ShortByteString(SBS))
 import Data.Int (Int64)
 import Data.Primitive (SmallArray,PrimArray)
 import Data.Word (Word8,Word32)
 import GHC.Exts (Int(I#))
 import GHC.ST (ST(ST))
-import Data.ByteString.Short.Internal (ShortByteString(SBS))
 
 import qualified Data.Bytes as Bytes
 import qualified Data.Bytes.Parser as P
-import qualified Data.Bytes.Parser.Leb128 as Leb128
+import qualified Data.Bytes.Parser.Base128 as Base128
 import qualified Data.Primitive as PM
 import qualified Data.Text.Short as TS
 import qualified Data.Text.Short.Unsafe as TS
@@ -109,7 +109,7 @@ objectIdentifier = do
             pure (ObjectIdentifier res)
           False -> if ix < sz
             then do
-              w <- Leb128.word32 "bad oid fragment"
+              w <- Base128.word32 "bad oid fragment"
               P.effect (PM.writePrimArray buf ix w)
               go (ix + 1) sz buf
             else do
@@ -119,7 +119,8 @@ objectIdentifier = do
                 PM.copyMutablePrimArray newBuf 0 buf 0 sz
                 pure newBuf
               go ix newSz newBuf
-    go 0 initialSize buf0
+    go 2 initialSize buf0
+
 
 -- TODO: support big tags (where base tag equals 31)
 constructed :: Class -> Word8 -> Parser String s Value
@@ -207,12 +208,22 @@ bitString = do
   bs <- P.take "while decoding octet string, not enough bytes" (fromIntegral (n - 1))
   pure (BitString padding bs)
 
--- TODO: write this
 integer :: Parser String s Value
-integer = do
-  n <- takeLength
-  _ <- P.take "while decoding integer, not enough bytes" (fromIntegral n)
-  pure (Integer 42)
+integer = takeLength >>= \case
+  0 -> P.fail "integers must have non-zero length"
+  n | n <= 8 -> do
+    content <- P.take "while decoding integer, not enough bytes" (fromIntegral n)
+    -- There are not zero-length integer encodings in BER, and we guared
+    -- against this above, so taking the head with unsafeIndex is safe.
+    let isNegative = testBit (Bytes.unsafeIndex content 0) 7
+        loopBody acc b = (acc `unsafeShiftL` 8) + fromIntegral @Word8 @Int64 b
+        unsigned = Bytes.foldl' loopBody 0 content
+    pure $ Integer $ if isNegative
+      then complement (clearBit unsigned (fromIntegral $ 8 * n - 1)) + 1
+      else unsigned
+    | otherwise -> do
+      -- TODO parse bignums
+      P.fail (show n ++ "-octet integer is too large to store in an Int64")
 
 -- TODO: write this
 utcTime :: Parser String s Value

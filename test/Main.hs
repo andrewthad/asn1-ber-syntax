@@ -1,15 +1,32 @@
 import Asn.Ber (decode)
 import Data.Bytes (Bytes)
 
+import qualified Asn.Ber as Ber
 import qualified GHC.Exts as Exts
 
 main :: IO ()
 main = do
   putStrLn "Starting"
+  putStrLn "Test A"
   case decode exampleSignedData of
     Left e -> fail ("Decoding signed data failed with: " ++ show e)
     Right _ -> pure ()
+  putStrLn "Test B"
+  case decode badIntegerZero of
+    Left _ -> pure ()
+    Right _ -> fail ("Decoding bad integer zero succeeded unexpectedly.")
+  putStrLn "Test C"
+  case decode goodIntegerZero of
+    Left _ -> fail "Decoding good integer zero failed unexpectedly."
+    Right (Ber.Integer 0) -> pure ()
+    Right _ -> fail "Decoding good integer zero gave bad result."
   putStrLn "Finished"
+
+badIntegerZero :: Bytes
+badIntegerZero = Exts.fromList [0x02,0x00]
+
+goodIntegerZero :: Bytes
+goodIntegerZero = Exts.fromList [0x02,0x01,0x00]
 
 -- Taken from https://www.di-mgt.com.au/docs/examplesPKCS.txt
 exampleSignedData :: Bytes

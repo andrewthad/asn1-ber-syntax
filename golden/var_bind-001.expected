@@ -1,0 +1,12 @@
+Constructed Universal 16
+    ( fromListN 2
+        [ ObjectIdentifier
+            ( fromListN 3
+                [ 1
+                , 3
+                , 19
+                ]
+            )
+        , Null
+        ]
+    )
