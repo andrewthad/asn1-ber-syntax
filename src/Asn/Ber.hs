@@ -210,14 +210,13 @@ bitString = do
 
 integer :: Parser String s Value
 integer = takeLength >>= \case
+  0 -> P.fail "integers must have non-zero length"
   n | n <= 8 -> do
-    -- there are not zero-length integer encodings, in BER,
-    -- so a cons pattern will always succeed
     content <- P.take "while decoding integer, not enough bytes" (fromIntegral n)
-    let isNegative = case Bytes.uncons content of
-          Just (hd, _) -> testBit hd 7
-          Nothing -> errorWithoutStackTrace "Asn.Ber.integer: programmer error"
-        loopBody acc b = acc `unsafeShiftL` 8 + fromIntegral @Word8 @Int64 b
+    -- There are not zero-length integer encodings in BER, and we guared
+    -- against this above, so taking the head with unsafeIndex is safe.
+    let isNegative = testBit (Bytes.unsafeIndex content 0) 7
+        loopBody acc b = (acc `unsafeShiftL` 8) + fromIntegral @Word8 @Int64 b
         unsigned = Bytes.foldl' loopBody 0 content
     pure $ Integer $ if isNegative
       then complement (clearBit unsigned (fromIntegral $ 8 * n - 1)) + 1
