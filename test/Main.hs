@@ -18,7 +18,7 @@ main = do
   putStrLn "Test C"
   case decode goodIntegerZero of
     Left _ -> fail "Decoding good integer zero failed unexpectedly."
-    Right (Ber.Integer 0) -> pure ()
+    Right Ber.Value{Ber.contents = Ber.Integer 0} -> pure ()
     Right _ -> fail "Decoding good integer zero gave bad result."
   putStrLn "Finished"
 

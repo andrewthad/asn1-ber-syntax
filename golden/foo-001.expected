@@ -1,17 +1,29 @@
-Constructed Universal 16
-    ( fromListN 2
-        [ Integer 100000
-        , ObjectIdentifier
-            ( fromListN 8
-                [ 1
-                , 3
-                , 6
-                , 1
-                , 2
-                , 1
-                , 1
-                , 1
-                ]
-            )
-        ]
-    )
+Value
+    { tagClass = Universal
+    , tagNumber = 16
+    , contents = Constructed
+        ( fromListN 2
+            [ Value
+                { tagClass = Universal
+                , tagNumber = 2
+                , contents = Integer 100000
+                }
+            , Value
+                { tagClass = Universal
+                , tagNumber = 6
+                , contents = ObjectIdentifier
+                    ( fromListN 8
+                        [ 1
+                        , 3
+                        , 6
+                        , 1
+                        , 2
+                        , 1
+                        , 1
+                        , 1
+                        ]
+                    )
+                }
+            ]
+        )
+    }
