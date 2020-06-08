@@ -141,8 +141,6 @@ unresolved = do
   bs <- P.take "while decoding unresolved contents, not enough bytes" (fromIntegral n)
   pure (Unresolved bs)
 
-
--- TODO: support big tags (where base tag equals 31)
 constructed :: Parser String s Contents
 constructed = do
   n <- takeLength
@@ -271,7 +269,9 @@ parser = do
   b <- P.any "expected tag byte"
   let tagClass = classFromUpperBits b
       isConstructed = testBit b 5
-      tagNumber = fromIntegral @Word8 @Word32 (b .&. 0b00011111)
+  tagNumber <- case b .&. 0b00011111 of
+        31 -> Base128.word32 "bad big tag"
+        num -> pure $ fromIntegral @Word8 @Word32 num
   contents <- if
     | Universal <- tagClass
     , not isConstructed
@@ -287,7 +287,6 @@ parser = do
       _ -> P.fail ("unrecognized universal primitive tag number " ++ show tagNumber)
     | isConstructed -> constructed
     | otherwise -> unresolved
-  -- FIXME: large tag numbers
   pure Value{tagClass, tagNumber, contents}
 
 ba2stUnsafe :: PM.ByteArray -> TS.ShortText
