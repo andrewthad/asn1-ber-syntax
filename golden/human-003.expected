@@ -1,7 +1,26 @@
-Constructed Universal 16
-    ( fromListN 2
-        [ Utf8String "giantstring_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-        , Constructed ContextSpecific 1
-            ( fromListN 1 [ Integer 50 ] )
-        ]
-    )
+Value
+    { tagClass = Universal
+    , tagNumber = 16
+    , contents = Constructed
+        ( fromListN 2
+            [ Value
+                { tagClass = Universal
+                , tagNumber = 12
+                , contents = Utf8String "giantstring_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                }
+            , Value
+                { tagClass = ContextSpecific
+                , tagNumber = 1
+                , contents = Constructed
+                    ( fromListN 1
+                        [ Value
+                            { tagClass = Universal
+                            , tagNumber = 2
+                            , contents = Integer 50
+                            }
+                        ]
+                    )
+                }
+            ]
+        )
+    }
