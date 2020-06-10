@@ -14,7 +14,9 @@ build-type: Simple
 extra-source-files: CHANGELOG.md
 
 library
-  exposed-modules: Asn.Ber
+  exposed-modules:
+      Asn.Ber
+    , Asn.Resolve
   build-depends:
     , base >=4.13 && <5
     , byteslice >=0.2.2 && <0.3

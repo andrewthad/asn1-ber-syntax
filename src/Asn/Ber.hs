@@ -13,6 +13,7 @@
 module Asn.Ber
   ( Value(..)
   , Contents(..)
+  , Class(..)
   , decode
     -- * Constructed Patterns
   , pattern Set
@@ -81,7 +82,7 @@ data Class
   | Application
   | ContextSpecific
   | Private
-  deriving stock (Show)
+  deriving stock (Eq,Show)
 
 decode :: Bytes -> Either String Value
 decode = P.parseBytesEither parser
