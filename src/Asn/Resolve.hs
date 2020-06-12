@@ -3,6 +3,8 @@
 {-# language DerivingStrategies #-}
 {-# language LambdaCase #-}
 {-# language NamedFieldPuns #-}
+{-# language RankNTypes #-}
+{-# language ScopedTypeVariables #-}
 
 -- | Transform between Haskell values and the 'Value' type. The instance you
 -- write for 'ToAsn' and 'FromAsn' assume a schema. I (Eric) think this is
@@ -22,24 +24,31 @@ module Asn.Resolve
   , printableString
   , sequence
   , index
+  , sequenceOf
   , withTag
   , chooseTag
   -- * Error Breadcrumbs
   , Path(..)
+  -- * Re-Exports
+  , Value
+  , Contents
+  , Class(..)
   ) where
 
 import Prelude hiding (fail,null,reverse,null,sequence)
 
 import Asn.Ber (Value(..), Contents(..), Class(..))
 import Control.Applicative (Alternative(..))
+import Control.Monad.ST (ST, runST)
 import Data.Bifunctor (first)
 import Data.Bytes (Bytes)
 import Data.Int (Int64)
-import Data.Primitive (PrimArray,SmallArray)
+import Data.Primitive (PrimArray,SmallArray,SmallMutableArray)
 import Data.Text.Short (ShortText)
 import Data.Word (Word32)
 
 import qualified Data.Primitive as PM
+import qualified Asn.Ber as Ber
 
 
 newtype Parser a = P { unP :: Path -> Either Path a }
@@ -76,39 +85,71 @@ instance Applicative MemberParser where
 fail :: Parser a
 fail = P $ Left
 
+unresolved :: (Bytes -> Either String a) -> Bytes -> Parser a
+unresolved f bytes = either (const fail) pure (f bytes)
+
 integer :: Value -> Parser Int64
 integer = \case
   Value{contents=Integer n} -> pure n
+  Value{contents=Unresolved bytes} -> unresolved Ber.decodeInteger bytes
   _ -> fail
 
 octetString :: Value -> Parser Bytes
 octetString = \case
   Value{contents=OctetString bs} -> pure bs
+  Value{contents=Unresolved bytes} -> unresolved Ber.decodeOctetString bytes
   _ -> fail
 
 null :: Value -> Parser ()
 null = \case
   Value{contents=Null} -> pure ()
+  Value{contents=Unresolved bytes} -> unresolved Ber.decodeNull bytes
   _ -> fail
 
 oid :: Value -> Parser (PrimArray Word32)
 oid = \case
   Value{contents=ObjectIdentifier objId} -> pure objId
+  Value{contents=Unresolved bytes} -> unresolved Ber.decodeObjectId bytes
   _ -> fail
 
 utf8String :: Value -> Parser ShortText
 utf8String = \case
   Value{contents=Utf8String str} -> pure str
+  Value{contents=Unresolved bytes} -> unresolved Ber.decodeUtf8String bytes
   _ -> fail
 
 printableString :: Value -> Parser ShortText
 printableString = \case
   Value{contents=PrintableString str} -> pure str
+  Value{contents=Unresolved bytes} -> unresolved Ber.decodePrintableString bytes
   _ -> fail
+
+sequenceOf :: forall a. (Value -> Parser a) -> Value -> Parser (SmallArray a)
+sequenceOf k = \case
+  Value{tagNumber=16, contents=Constructed vals} -> P $ \p -> runST $ do
+    dst <- PM.newSmallArray (PM.sizeofSmallArray vals) undefined
+    go vals dst p 0
+  _ -> fail
+  where
+  go :: forall s.
+       SmallArray Value
+    -> SmallMutableArray s a
+    -> Path
+    -> Int
+    -> ST s (Either Path (SmallArray a))
+  go src dst p0 ix
+    | ix < PM.sizeofSmallArray src = do
+      let val = PM.indexSmallArray src ix
+      case unP (k val) (Index ix p0) of
+        Left err -> pure $ Left err
+        Right rval -> do
+          PM.writeSmallArray dst ix rval
+          go src dst p0 (ix + 1)
+    | otherwise = Right <$> PM.unsafeFreezeSmallArray dst
 
 sequence :: MemberParser a -> Value -> Parser a
 sequence k = \case
-  Value{tagNumber=16, contents=Constructed vals} -> P (unMP k vals)
+  Value{contents=Constructed vals} -> P (unMP k vals)
   _ -> fail
 
 index :: Int -> (Value -> Parser a) -> MemberParser a

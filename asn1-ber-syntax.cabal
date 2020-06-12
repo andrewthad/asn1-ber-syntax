@@ -33,9 +33,9 @@ test-suite test
   hs-source-dirs: test
   main-is: Main.hs
   build-depends:
+    , asn1-ber-syntax
     , base
     , byteslice
-    , asn1-ber-syntax
   ghc-options: -Wall -O2
   default-language: Haskell2010
 
@@ -43,15 +43,18 @@ test-suite asn1-ber-syntax-golden
   type: exitcode-stdio-1.0
   hs-source-dirs: test
   main-is: Golden.hs
+  other-modules:
+    Message
   build-depends:
+    , asn1-ber-syntax
     , base
-    , byteslice
-    , tasty-golden
     , base16
+    , byteslice
     , bytestring
     , filepath
-    , tasty
-    , asn1-ber-syntax
     , pretty-simple
+    , primitive
+    , tasty
+    , tasty-golden
   ghc-options: -Wall -O2
   default-language: Haskell2010
