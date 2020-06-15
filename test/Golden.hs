@@ -13,6 +13,7 @@ import Text.Pretty.Simple (pHPrint)
 import qualified Data.ByteString as ByteString
 import qualified Data.ByteString.Char8 as BC8
 import qualified GHC.Exts as Exts
+import qualified Message.Category as Cat
 
 main :: IO ()
 main = defaultMain =<< goldenTests
@@ -48,7 +49,9 @@ goldenResolveTests = do
           Left err -> fail ("could not decode input: " ++ err)
           Right s -> case resolveMessage s of
             Left err -> fail ("could not resolve input: " ++ show err)
-            Right v -> withFile actualName WriteMode (\h -> pHPrint h v)
+            Right _ -> case Cat.resolveMessage s of
+              Left err -> fail ("could not resolve input (Category-style): " ++ show err)
+              Right v -> withFile actualName WriteMode (\h -> pHPrint h v)
 
 
 bytestringToBytes :: ByteString -> Bytes

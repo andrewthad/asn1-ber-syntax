@@ -17,6 +17,7 @@ library
   exposed-modules:
       Asn.Ber
     , Asn.Resolve
+    , Asn.Resolve.Category
   build-depends:
     , base >=4.13 && <5
     , byteslice >=0.2.2 && <0.3
@@ -45,6 +46,7 @@ test-suite asn1-ber-syntax-golden
   main-is: Golden.hs
   other-modules:
     Message
+    Message.Category
   build-depends:
     , asn1-ber-syntax
     , base
