@@ -7,13 +7,21 @@
 {-# language NamedFieldPuns #-}
 {-# language NumericUnderscores #-}
 {-# language PatternSynonyms #-}
+{-# language RankNTypes #-}
 {-# language TypeApplications #-}
 {-# language UnboxedTuples #-}
 
 module Asn.Ber
   ( Value(..)
   , Contents(..)
+  , Class(..)
   , decode
+  , decodeInteger
+  , decodeOctetString
+  , decodeNull
+  , decodeObjectId
+  , decodeUtf8String
+  , decodePrintableString
     -- * Constructed Patterns
   , pattern Set
   , pattern Sequence
@@ -81,10 +89,33 @@ data Class
   | Application
   | ContextSpecific
   | Private
-  deriving stock (Show)
+  deriving stock (Eq,Show)
 
 decode :: Bytes -> Either String Value
 decode = P.parseBytesEither parser
+
+decodePayload :: (forall s. Word -> Parser String s a) -> Bytes -> Either String a
+decodePayload k bs =
+  let len = fromIntegral @Int @Word (Bytes.length bs)
+   in P.parseBytesEither (k len) bs
+
+decodeInteger :: Bytes -> Either String Int64
+decodeInteger = decodePayload integerPayload
+
+decodeOctetString :: Bytes -> Either String Bytes
+decodeOctetString = decodePayload octetStringPayload
+
+decodeNull :: Bytes -> Either String ()
+decodeNull = decodePayload nullPayload
+
+decodeObjectId :: Bytes -> Either String (PrimArray Word32)
+decodeObjectId = decodePayload objectIdentifierPayload
+
+decodeUtf8String :: Bytes -> Either String TS.ShortText
+decodeUtf8String = decodePayload utf8StringPayload
+
+decodePrintableString :: Bytes -> Either String TS.ShortText
+decodePrintableString = decodePayload printableStringPayload
 
 takeLength :: Parser String s Word
 takeLength = do
@@ -103,10 +134,12 @@ takeLength = do
       go (fromIntegral @Word8 @Word w .&. 0b01111111) 0
 
 objectIdentifier :: Parser String s Contents
-objectIdentifier = do
-  n <- takeLength
-  when (n < 1) (P.fail "oid must have length of at least 1")
-  P.delimit "oid not enough bytes" "oid leftovers" (fromIntegral n) $ do
+objectIdentifier = fmap ObjectIdentifier . objectIdentifierPayload =<< takeLength
+
+objectIdentifierPayload :: Word -> Parser String s (PrimArray Word32)
+objectIdentifierPayload len = do
+  when (len < 1) (P.fail "oid must have length of at least 1")
+  P.delimit "oid not enough bytes" "oid leftovers" (fromIntegral len) $ do
     w0 <- P.any "oid expecting first byte"
     let (v1, v2) = quotRem w0 40
         initialSize = 12
@@ -119,7 +152,7 @@ objectIdentifier = do
             res <- P.effect $ do
               PM.shrinkMutablePrimArray buf ix
               PM.unsafeFreezePrimArray buf
-            pure (ObjectIdentifier res)
+            pure res
           False -> if ix < sz
             then do
               w <- Base128.word32 "bad oid fragment"
@@ -176,19 +209,24 @@ errorThunk :: a
 errorThunk = errorWithoutStackTrace "Asn.Ber: implementation mistake"
 
 utf8String :: Parser String s Contents
-utf8String = do
-  n <- takeLength
-  bs <- P.take "while decoding UTF-8 string, not enough bytes" (fromIntegral n)
+utf8String = fmap Utf8String . utf8StringPayload =<< takeLength
+
+utf8StringPayload :: Word -> Parser String s TS.ShortText
+utf8StringPayload len = do
+  bs <- P.take "while decoding UTF-8 string, not enough bytes" (fromIntegral len)
   case TS.fromShortByteString (ba2sbs (Bytes.toByteArrayClone bs)) of
     Nothing -> P.fail "found non-UTF-8 byte sequences in printable string"
-    Just r -> pure (Utf8String r)
+    Just r -> pure r
+
 
 printableString :: Parser String s Contents
-printableString = do
-  n <- takeLength
-  bs <- P.take "while decoding printable string, not enough bytes" (fromIntegral n)
+printableString = fmap PrintableString . printableStringPayload =<< takeLength
+
+printableStringPayload :: Word -> Parser String s TS.ShortText
+printableStringPayload len = do
+  bs <- P.take "while decoding printable string, not enough bytes" (fromIntegral len)
   if Bytes.all isPrintable bs
-    then pure $! PrintableString $! ba2stUnsafe $! Bytes.toByteArrayClone bs
+    then pure $! ba2stUnsafe $! Bytes.toByteArrayClone bs
     else P.fail "found non-printable characters in printable string"
 
 isPrintable :: Word8 -> Bool
@@ -211,10 +249,11 @@ isPrintable = \case
   _ -> False
 
 octetString :: Parser String s Contents
-octetString = do
-  n <- takeLength
-  bs <- P.take "while decoding octet string, not enough bytes" (fromIntegral n)
-  pure (OctetString bs)
+octetString = fmap OctetString . octetStringPayload =<< takeLength
+
+octetStringPayload :: Word -> Parser String s Bytes
+octetStringPayload len = do
+  P.take "while decoding octet string, not enough bytes" (fromIntegral len)
 
 -- The whole bit string thing is kind of janky, but SNMP does not use
 -- it, so it is not terribly important.
@@ -229,19 +268,22 @@ bitString = do
 integer :: Parser String s Contents
 integer = takeLength >>= \case
   0 -> P.fail "integers must have non-zero length"
-  n | n <= 8 -> do
-    content <- P.take "while decoding integer, not enough bytes" (fromIntegral n)
-    -- There are not zero-length integer encodings in BER, and we guared
-    -- against this above, so taking the head with unsafeIndex is safe.
-    let isNegative = testBit (Bytes.unsafeIndex content 0) 7
-        loopBody acc b = (acc `unsafeShiftL` 8) + fromIntegral @Word8 @Int64 b
-        unsigned = Bytes.foldl' loopBody 0 content
-    pure $ Integer $ if isNegative
-      then complement (clearBit unsigned (fromIntegral $ 8 * n - 1)) + 1
-      else unsigned
+  n | n <= 8 -> Integer <$> integerPayload n
     | otherwise -> do
       -- TODO parse bignums
       P.fail (show n ++ "-octet integer is too large to store in an Int64")
+
+integerPayload :: Word -> Parser String s Int64
+integerPayload len = do
+  content <- P.take "while decoding integer, not enough bytes" (fromIntegral len)
+  -- There are not zero-length integer encodings in BER, and we guared
+  -- against this above, so taking the head with unsafeIndex is safe.
+  let isNegative = testBit (Bytes.unsafeIndex content 0) 7
+      loopBody acc b = (acc `unsafeShiftL` 8) + fromIntegral @Word8 @Int64 b
+      unsigned = Bytes.foldl' loopBody 0 content
+  pure $ if isNegative
+    then complement (clearBit unsigned (fromIntegral $ 8 * len - 1)) + 1
+    else unsigned
 
 -- TODO: write this
 utcTime :: Parser String s Contents
@@ -251,11 +293,12 @@ utcTime = do
   pure UtcTime
 
 nullParser :: Parser String s Contents
-nullParser = do
-  n <- takeLength
-  case n of
-    0 -> pure Null
-    _ -> P.fail ("expecting null contents to have length zero, got " ++ show n)
+nullParser = fmap (const Null) . nullPayload =<< takeLength
+
+nullPayload :: Word -> Parser String s ()
+nullPayload 0 = pure ()
+nullPayload len = P.fail ("expecting null contents to have length zero, got " ++ show len)
+
 
 classFromUpperBits :: Word8 -> Class
 classFromUpperBits w = case unsafeShiftR w 6 of
