@@ -86,16 +86,6 @@ instance Alternative (Parser a) where
 run :: Parser a b -> a -> Either Path b
 run r v = bimap reverse fst $ unP r v Nil
 
--- newtype MemberParser a = MP
---   { unMP :: SmallArray Value -> Path -> Either Path a }
---   deriving stock Functor
-
--- instance Applicative MemberParser where
---   pure a = MP (\_ _ -> Right a)
---   MP f <*> MP g = MP $ \p mbrs ->
---     f p mbrs <*> g p mbrs
-
-
 fail :: Parser a b
 fail = P $ const Left
 
@@ -166,11 +156,11 @@ sequence = P $ \v p -> case v of
   Value{contents=Constructed vals} -> Right (vals, p)
   _ -> Left p
 
-index :: Int -> (Parser Value a) -> Parser (SmallArray Value) a
-index ix k = P $ \vals p ->
+index :: Int -> Parser (SmallArray a) a
+index ix = P $ \vals p ->
   let p' = Index ix p in
   if ix < PM.sizeofSmallArray vals
-    then unP k (PM.indexSmallArray vals ix) p'
+    then Right (PM.indexSmallArray vals ix, p')
     else Left p'
 
 withTag :: Class -> Word32 -> Parser Value Value
