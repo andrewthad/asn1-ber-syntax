@@ -8,50 +8,77 @@ module Asn.Ber.Encode
   ( encode
   ) where
 
+import Prelude hiding (length)
+
 import Asn.Ber (Value(..),Contents(..),Class(..))
 import Data.Bits ((.&.),(.|.),unsafeShiftL,unsafeShiftR,bit,testBit)
-import Data.ByteArray.Builder (Builder)
 import Data.Bytes (Bytes)
+import Data.ByteString.Short.Internal (ShortByteString(SBS))
+import Data.Foldable (foldMap')
+import Data.Foldable(fold)
 import Data.Int (Int64)
-import Data.Primitive.ByteArray (byteArrayFromList)
-import Data.Word (Word8)
-import Data.Primitive (SmallArray)
+import Data.Primitive (SmallArray,PrimArray)
+import Data.Primitive.ByteArray (byteArrayFromList,ByteArray(ByteArray))
+import Data.Vector (Vector)
+import Data.Word (Word8,Word32)
 
-import qualified Data.ByteArray.Builder as B
+
+import qualified Data.Primitive as Prim
+import qualified Data.Vector as V
 import qualified Data.Bytes as Bytes
+import qualified Data.Text.Short as TS
 
-data Encoder = E
-  { builder :: !Builder
-  , size :: !Int
-  }
+data Encoder
+  = Leaf Bytes
+  | Node
+    { _length :: !Int
+    , _children :: Vector Encoder
+    }
+
+length :: Encoder -> Int
+length (Leaf bs) = Bytes.length bs
+length a@(Node _ _) = length a
+
+children :: Encoder -> Vector Encoder
+children a@(Leaf _) = V.singleton a
+children a@(Node _ _ ) = _children a
 
 instance Semigroup Encoder where
-  a <> b = E
-    { builder = builder a <> builder b
-    , size = size a + size b
+  Leaf a <> b = Node
+    { _length = Bytes.length a + length b
+    , _children = Leaf a `V.cons` children b
+    }
+  a <> b = Node
+    { _length = length a + length b
+    , _children = V.fromListN 2 [a, b]
     }
 instance Monoid Encoder where
-  mempty = E
-    { builder = mempty
-    , size = 0
-    }
+  mempty = Node 0 V.empty
+word8 :: Word8 -> Encoder
+word8 = Leaf . Bytes.singleton
+singleton :: Bytes -> Encoder
+singleton bs = Node
+  { _length = Bytes.length bs
+  , _children = V.singleton (Leaf bs)
+  }
 
-encode :: Value -> Builder
-encode = builder . encodeValue
+run :: Encoder -> Bytes
+run (Leaf bs) = bs
+-- FIXME this is dumb; I should alloc the length and then memcpy as needed
+run Node{_children} = fold $ run <$> _children
+
+encode :: Value -> Bytes
+encode = run . encodeValue
 
 encodeValue :: Value -> Encoder
 encodeValue v@Value{contents} =
   let theContent = encodeContents contents
-   in valueHeader v <> encodeLength (size theContent) <> theContent
-   -- in valueHeader v <> base128 (size theContent) <> theContent
+   in valueHeader v <> encodeLength (length theContent) <> theContent
 
 valueHeader :: Value -> Encoder
 valueHeader Value{tagClass,tagNumber,contents} = byte1 <> extTag
   where
-  byte1 = E
-    { builder = B.byteArray $ byteArrayFromList [clsBits .|. pcBits .|. tagBits]
-    , size = 1
-    }
+  byte1 = word8 (clsBits .|. pcBits .|. tagBits)
   clsBits = (`unsafeShiftL` 5) $ case tagClass of
     Universal -> 0
     Application -> 1
@@ -63,31 +90,35 @@ valueHeader Value{tagClass,tagNumber,contents} = byte1 <> extTag
   tagBits = min (fromIntegral @_ @Word8 tagNumber) 31
   extTag
     | tagNumber < 31 = mempty
-    | otherwise = undefined -- TODO
+    | otherwise = base128 (fromIntegral @Word32 @Int64 tagNumber) -- FIXME use an unsigned base128 encoder
 
 encodeLength :: Int -> Encoder
 encodeLength n
-  | n < 128 = E
-    { builder = B.byteArray $ byteArrayFromList [fromIntegral @Int @Word8 n]
-    , size = 1
-    }
+  | n < 128 = word8 $ fromIntegral @Int @Word8 n
   | otherwise =
     let len = base256 (fromIntegral n)
-        lenSize = E
-          { builder = B.byteArray $ byteArrayFromList [fromIntegral @Int @Word8 $ size len]
-          , size = 1
-          }
-     in lenSize <> len
+        lenHeader = word8 $ fromIntegral @Int @Word8 (length len)
+     in lenHeader <> len
 
 encodeContents :: Contents -> Encoder
 encodeContents = \case
   Integer n -> base128 n
   OctetString bs -> bytes bs
+  BitString padBits bs -> word8 padBits <> bytes bs
+  Null -> mempty
+  ObjectIdentifier arr
+    | Prim.sizeofPrimArray arr < 2 -> error "Object Identifier must have at least two components"
+    | otherwise -> objectIdentifier arr
+  Utf8String str -> utf8String str
+  PrintableString str -> printableString str
+  -- TODO UtcTime
+  Constructed arr -> constructed arr
+  Unresolved raw -> bytes raw
 
 ------------------ Content Encoders ------------------
 
 base128 :: Int64 -> Encoder
-base128 = go False 0 []
+base128 = go False (0 :: Int) []
   where
   go !lastNeg !size acc n =
     let content = fromIntegral @Int64 @Word8 (n .&. 0x7F)
@@ -96,20 +127,14 @@ base128 = go False 0 []
         atEnd = (content == 0 && rest == 0 && not lastNeg)
               || (content == 0x7F && rest == (-1) && lastNeg)
      in if size /= 0 && atEnd
-        then stop size acc
+        then stop acc
         else
           let content' = (if size == 0 then 0 else 0x80) .|. content
            in go thisNeg (size + 1) (content' : acc) rest
-  stop !size acc = E
-    { builder = (B.byteArray . byteArrayFromList $ acc)
-    , size
-    }
+  stop acc = singleton . Bytes.fromByteArray . byteArrayFromList $ acc
 
 base256 :: Int64 -> Encoder
-base256 n = E
-    { builder = B.byteArray (byteArrayFromList minimized)
-    , size = length minimized
-    }
+base256 n = singleton $ Bytes.fromByteArray (byteArrayFromList minimized)
   where
   byteList = [fromIntegral @Int64 @Word8 (n `unsafeShiftR` bits) | bits <- reverse [0,8..56]]
   minimized
@@ -123,7 +148,27 @@ base256 n = E
         bs' -> 0x00:bs'
 
 bytes :: Bytes -> Encoder
-bytes bs = E
-  { builder = B.bytes bs
-  , size = Bytes.length bs
-  }
+bytes = singleton
+
+objectIdentifier :: PrimArray Word32 -> Encoder
+objectIdentifier arr = firstComps <> mconcat restComps
+  where
+  firstComps = word8 $ fromIntegral @Word32 @Word8 $
+    (40 * Prim.indexPrimArray arr 0) + (Prim.indexPrimArray arr 1)
+  restComps = [base128 $ fromIntegral @Word32 @Int64 $ Prim.indexPrimArray arr i
+              | i <- [2..Prim.sizeofPrimArray arr]]
+
+utf8String :: TS.ShortText -> Encoder
+utf8String str = singleton $ shortTextToBytes $ str
+
+printableString :: TS.ShortText -> Encoder
+printableString str = singleton $ shortTextToBytes $ str
+  -- utf8 is backwards-compatible with ascii, so just hope that the input text is actually printable ascii
+
+constructed :: SmallArray Value -> Encoder
+constructed = foldMap' encodeValue
+
+shortTextToBytes :: TS.ShortText -> Bytes
+shortTextToBytes str = case TS.toShortByteString str of
+  -- ShortText is already utf8-encoded, so just re-wrap it
+  SBS arr -> Bytes.fromByteArray (ByteArray arr)
