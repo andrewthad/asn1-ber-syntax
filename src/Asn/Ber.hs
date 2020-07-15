@@ -28,7 +28,7 @@ module Asn.Ber
   ) where
 
 import Control.Monad (when)
-import Data.Bits ((.&.),testBit,unsafeShiftR,unsafeShiftL,complement,clearBit)
+import Data.Bits ((.&.),(.|.),testBit,unsafeShiftR,unsafeShiftL,complement)
 import Data.Bytes (Bytes)
 import Data.Bytes.Parser (Parser)
 import Data.ByteString.Short.Internal (ShortByteString(SBS))
@@ -52,6 +52,7 @@ data Value = Value
   , contents :: !Contents
   }
   deriving stock (Show)
+  deriving stock (Eq)
 
 data Contents
   = Integer !Int64
@@ -77,6 +78,7 @@ data Contents
     -- ^ Values that require information about interpreting application,
     -- context-specific, or private tag.
   deriving stock (Show)
+  deriving stock (Eq)
 
 pattern Sequence :: Word32
 pattern Sequence = 0x10
@@ -161,7 +163,7 @@ objectIdentifierPayload len = do
             else do
               let newSz = sz * 2
               newBuf <- P.effect $ do
-                newBuf <- PM.newPrimArray initialSize
+                newBuf <- PM.newPrimArray newSz
                 PM.copyMutablePrimArray newBuf 0 buf 0 sz
                 pure newBuf
               go ix newSz newBuf
@@ -279,11 +281,10 @@ integerPayload len = do
   -- There are not zero-length integer encodings in BER, and we guared
   -- against this above, so taking the head with unsafeIndex is safe.
   let isNegative = testBit (Bytes.unsafeIndex content 0) 7
-      loopBody acc b = (acc `unsafeShiftL` 8) + fromIntegral @Word8 @Int64 b
-      unsigned = Bytes.foldl' loopBody 0 content
+      loopBody acc b = (acc `unsafeShiftL` 8) .|. fromIntegral @Word8 @Int64 b
   pure $ if isNegative
-    then complement (clearBit unsigned (fromIntegral $ 8 * len - 1)) + 1
-    else unsigned
+    then Bytes.foldl' loopBody (complement 0) content
+    else Bytes.foldl' loopBody 0 content
 
 -- TODO: write this
 utcTime :: Parser String s Contents

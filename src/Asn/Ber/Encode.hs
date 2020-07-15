@@ -34,20 +34,20 @@ data Encoder
     { _length :: !Int
     , _children :: Vector Encoder
     }
+  deriving(Show)
 
 length :: Encoder -> Int
 length (Leaf bs) = Bytes.length bs
-length a@(Node _ _) = length a
+length a@(Node _ _) = _length a
 
 children :: Encoder -> Vector Encoder
 children a@(Leaf _) = V.singleton a
 children a@(Node _ _ ) = _children a
 
 instance Semigroup Encoder where
-  Leaf a <> b = Node
-    { _length = Bytes.length a + length b
-    , _children = Leaf a `V.cons` children b
-    }
+  a <> b
+    | length a == 0 = b
+    | length b == 0 = a
   a <> b = Node
     { _length = length a + length b
     , _children = V.fromListN 2 [a, b]
@@ -57,10 +57,7 @@ instance Monoid Encoder where
 word8 :: Word8 -> Encoder
 word8 = Leaf . Bytes.singleton
 singleton :: Bytes -> Encoder
-singleton bs = Node
-  { _length = Bytes.length bs
-  , _children = V.singleton (Leaf bs)
-  }
+singleton = Leaf
 
 run :: Encoder -> Bytes
 run (Leaf bs) = bs
@@ -79,7 +76,7 @@ valueHeader :: Value -> Encoder
 valueHeader Value{tagClass,tagNumber,contents} = byte1 <> extTag
   where
   byte1 = word8 (clsBits .|. pcBits .|. tagBits)
-  clsBits = (`unsafeShiftL` 5) $ case tagClass of
+  clsBits = (`unsafeShiftL` 6) $ case tagClass of
     Universal -> 0
     Application -> 1
     ContextSpecific -> 2
@@ -87,7 +84,7 @@ valueHeader Value{tagClass,tagNumber,contents} = byte1 <> extTag
   pcBits = case contents of
     Constructed _ -> bit 5
     _ -> 0x00
-  tagBits = min (fromIntegral @_ @Word8 tagNumber) 31
+  tagBits = fromIntegral @Word32 @Word8 $ min tagNumber 31
   extTag
     | tagNumber < 31 = mempty
     | otherwise = base128 (fromIntegral @Word32 @Int64 tagNumber) -- FIXME use an unsigned base128 encoder
@@ -97,12 +94,12 @@ encodeLength n
   | n < 128 = word8 $ fromIntegral @Int @Word8 n
   | otherwise =
     let len = base256 (fromIntegral n)
-        lenHeader = word8 $ fromIntegral @Int @Word8 (length len)
+        lenHeader = word8 $ bit 7 .|. (fromIntegral @Int @Word8 (length len))
      in lenHeader <> len
 
 encodeContents :: Contents -> Encoder
 encodeContents = \case
-  Integer n -> base128 n
+  Integer n -> base256 n
   OctetString bs -> bytes bs
   BitString padBits bs -> word8 padBits <> bytes bs
   Null -> mempty
@@ -136,7 +133,10 @@ base128 = go False (0 :: Int) []
 base256 :: Int64 -> Encoder
 base256 n = singleton $ Bytes.fromByteArray (byteArrayFromList minimized)
   where
-  byteList = [fromIntegral @Int64 @Word8 (n `unsafeShiftR` bits) | bits <- reverse [0,8..56]]
+  byteList =
+    [ fromIntegral @Int64 @Word8 $ 0xFF .&. (n `unsafeShiftR` bits)
+    | bits <- [56,48..0]
+    ]
   minimized
     | n < 0 =
       case dropWhile (==0xFF) byteList of
@@ -156,7 +156,7 @@ objectIdentifier arr = firstComps <> mconcat restComps
   firstComps = word8 $ fromIntegral @Word32 @Word8 $
     (40 * Prim.indexPrimArray arr 0) + (Prim.indexPrimArray arr 1)
   restComps = [base128 $ fromIntegral @Word32 @Int64 $ Prim.indexPrimArray arr i
-              | i <- [2..Prim.sizeofPrimArray arr]]
+              | i <- [2..Prim.sizeofPrimArray arr - 1]]
 
 utf8String :: TS.ShortText -> Encoder
 utf8String str = singleton $ shortTextToBytes $ str
