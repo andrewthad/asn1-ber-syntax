@@ -14,6 +14,7 @@ module Asn.Resolve.Category
   ( Parser
   , run
   -- * Combinators
+  , arr
   , (>->)
   , fail
   , integer
@@ -66,6 +67,11 @@ instance Applicative (Parser a) where
       Right (x, p') -> Right (f x, p')
       Left err -> Left err
     Left err -> Left err
+
+arr :: (a -> Maybe b) -> Parser a b
+arr f = P $ \v p -> case f v of
+  Just v' -> Right (v', p)
+  Nothing -> Left p
 
 (>->) :: Parser a b -> Parser b c -> Parser a c
 (P f) >-> (P g) = P $ \v p -> case f v p of
