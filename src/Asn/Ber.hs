@@ -196,7 +196,7 @@ constructed = do
             else do
               let newSz = sz * 2
               newBuf <- P.effect $ do
-                newBuf <- PM.newSmallArray initialSize errorThunk
+                newBuf <- PM.newSmallArray newSz errorThunk
                 PM.copySmallMutableArray newBuf 0 buf 0 sz
                 pure newBuf
               go ix newSz newBuf
