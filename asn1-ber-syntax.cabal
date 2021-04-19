@@ -17,6 +17,7 @@ library
   exposed-modules:
       Asn.Ber
     , Asn.Ber.Encode
+    , Asn.Oid
     , Asn.Resolve
     , Asn.Resolve.Category
   build-depends:
