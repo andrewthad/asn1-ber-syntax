@@ -17,6 +17,7 @@ library
   exposed-modules:
       Asn.Ber
     , Asn.Ber.Encode
+    , Asn.Oid
     , Asn.Resolve
     , Asn.Resolve.Category
   build-depends:
@@ -25,6 +26,7 @@ library
     , byteslice >=0.2.2 && <0.3
     , bytesmith >=0.3 && <0.4
     , bytestring >=0.10
+    , contiguous >=0.5
     , primitive >=0.7.1 && <0.8
     , bytebuild >=0.3.7 && <0.4
     , text-short >=0.1.3

@@ -27,13 +27,14 @@ module Asn.Ber
   , pattern Sequence
   ) where
 
+import Asn.Oid (Oid(..))
 import Control.Monad (when)
 import Data.Bits ((.&.),(.|.),testBit,unsafeShiftR,unsafeShiftL,complement)
 import Data.Bytes (Bytes)
 import Data.Bytes.Parser (Parser)
 import Data.ByteString.Short.Internal (ShortByteString(SBS))
 import Data.Int (Int64)
-import Data.Primitive (SmallArray,PrimArray)
+import Data.Primitive (SmallArray)
 import Data.Word (Word8,Word32)
 import GHC.Exts (Int(I#))
 import GHC.ST (ST(ST))
@@ -63,7 +64,7 @@ data Contents
     -- ^ Tag number: @0x03@. Has padding bit count and raw bytes.
   | Null
     -- ^ Tag number: @0x05@
-  | ObjectIdentifier !(PrimArray Word32)
+  | ObjectIdentifier !Oid
     -- ^ Tag number: @0x06@
   | Utf8String {-# UNPACK #-} !TS.ShortText
     -- ^ Tag number: @0x0C@
@@ -110,7 +111,7 @@ decodeOctetString = decodePayload octetStringPayload
 decodeNull :: Bytes -> Either String ()
 decodeNull = decodePayload nullPayload
 
-decodeObjectId :: Bytes -> Either String (PrimArray Word32)
+decodeObjectId :: Bytes -> Either String Oid
 decodeObjectId = decodePayload objectIdentifierPayload
 
 decodeUtf8String :: Bytes -> Either String TS.ShortText
@@ -138,7 +139,7 @@ takeLength = do
 objectIdentifier :: Parser String s Contents
 objectIdentifier = fmap ObjectIdentifier . objectIdentifierPayload =<< takeLength
 
-objectIdentifierPayload :: Word -> Parser String s (PrimArray Word32)
+objectIdentifierPayload :: Word -> Parser String s Oid
 objectIdentifierPayload len = do
   when (len < 1) (P.fail "oid must have length of at least 1")
   P.delimit "oid not enough bytes" "oid leftovers" (fromIntegral len) $ do
@@ -154,7 +155,7 @@ objectIdentifierPayload len = do
             res <- P.effect $ do
               PM.shrinkMutablePrimArray buf ix
               PM.unsafeFreezePrimArray buf
-            pure res
+            pure (Oid res)
           False -> if ix < sz
             then do
               w <- Base128.word32 "bad oid fragment"

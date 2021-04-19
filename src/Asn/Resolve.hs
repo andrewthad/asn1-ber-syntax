@@ -38,12 +38,13 @@ module Asn.Resolve
 import Prelude hiding (fail,null,reverse,null,sequence)
 
 import Asn.Ber (Value(..), Contents(..), Class(..))
+import Asn.Oid (Oid)
 import Control.Applicative (Alternative(..))
 import Control.Monad.ST (ST, runST)
 import Data.Bifunctor (first)
 import Data.Bytes (Bytes)
 import Data.Int (Int64)
-import Data.Primitive (PrimArray,SmallArray,SmallMutableArray)
+import Data.Primitive (SmallArray,SmallMutableArray)
 import Data.Text.Short (ShortText)
 import Data.Word (Word32)
 
@@ -106,7 +107,7 @@ null = \case
   Value{contents=Unresolved bytes} -> unresolved Ber.decodeNull bytes
   _ -> fail
 
-oid :: Value -> Parser (PrimArray Word32)
+oid :: Value -> Parser Oid
 oid = \case
   Value{contents=ObjectIdentifier objId} -> pure objId
   Value{contents=Unresolved bytes} -> unresolved Ber.decodeObjectId bytes

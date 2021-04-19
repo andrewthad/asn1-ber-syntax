@@ -40,12 +40,13 @@ module Asn.Resolve.Category
 import Prelude hiding (fail,null,reverse,null,sequence)
 
 import Asn.Ber (Value(..), Contents(..), Class(..))
+import Asn.Oid (Oid)
 import Control.Applicative (Alternative(..))
 import Control.Monad.ST (ST, runST)
 import Data.Bifunctor (bimap,second)
 import Data.Bytes (Bytes)
 import Data.Int (Int64)
-import Data.Primitive (PrimArray,SmallArray,SmallMutableArray)
+import Data.Primitive (SmallArray,SmallMutableArray)
 import Data.Text.Short (ShortText)
 import Data.Word (Word32)
 
@@ -116,7 +117,7 @@ null = P $ \v p -> case v of
   Value{contents=Unresolved bytes} -> unresolved Ber.decodeNull bytes p
   _ -> Left p
 
-oid :: Parser Value (PrimArray Word32)
+oid :: Parser Value Oid
 oid = P $ \v p -> case v of
   Value{contents=ObjectIdentifier objId} -> Right (objId, p)
   Value{contents=Unresolved bytes} -> unresolved Ber.decodeObjectId bytes p

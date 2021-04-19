@@ -11,6 +11,7 @@ module Asn.Ber.Encode
 import Prelude hiding (length)
 
 import Asn.Ber (Value(..),Contents(..),Class(..))
+import Asn.Oid (Oid(..))
 import Data.Bits ((.&.),(.|.),unsafeShiftL,unsafeShiftR,bit,testBit)
 import Data.Bytes (Bytes)
 import Data.ByteString.Short.Internal (ShortByteString(SBS))
@@ -103,7 +104,7 @@ encodeContents = \case
   OctetString bs -> bytes bs
   BitString padBits bs -> word8 padBits <> bytes bs
   Null -> mempty
-  ObjectIdentifier arr
+  ObjectIdentifier (Oid arr)
     | Prim.sizeofPrimArray arr < 2 -> error "Object Identifier must have at least two components"
     | otherwise -> objectIdentifier arr
   Utf8String str -> utf8String str
