@@ -1,5 +1,6 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 
 module Asn.Oid
   ( Oid(..)
@@ -22,8 +23,14 @@ import qualified Data.Text.Short as ST
 
 
 newtype Oid = Oid { getOid :: PrimArray Word32 }
-  deriving stock (Show)
-  deriving stock (Eq)
+  deriving newtype (Show)
+  deriving newtype (Semigroup)
+  deriving newtype (Monoid)
+  deriving newtype (Eq)
+  deriving newtype (Ord)
+
+
+
 
 toShortText :: Oid -> ShortText
 toShortText (Oid arr) = ST.pack $ intercalate "." $ show <$> C.toList arr
