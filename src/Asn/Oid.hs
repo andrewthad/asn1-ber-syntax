@@ -33,9 +33,6 @@ newtype Oid = Oid { getOid :: PrimArray Word32 }
   deriving newtype (Eq)
   deriving newtype (Ord)
 
-
-
-
 toShortText :: Oid -> ShortText
 toShortText (Oid arr) = ST.pack $ intercalate "." $ show <$> C.toList arr
 
@@ -56,7 +53,6 @@ take (Oid preArr) len
     dst <- Prim.newPrimArray len
     Prim.copyPrimArray dst 0 preArr 0 len
     Oid <$> Prim.unsafeFreezePrimArray dst
-
 
 isPrefixOf :: Oid -> Oid -> Bool
 isPrefixOf (Oid preArr) (Oid arr)
