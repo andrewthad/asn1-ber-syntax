@@ -60,7 +60,7 @@ isPrefixOf (Oid preArr) (Oid arr)
   | otherwise = go 0
   where
   go !i
-    | i >= theSize = True
+    | i >= preSize = True
     | Prim.indexPrimArray preArr i /= Prim.indexPrimArray arr i = False
     | otherwise = go (i + 1)
   preSize = Prim.sizeofPrimArray preArr
