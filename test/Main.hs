@@ -1,26 +1,37 @@
+{-# language DerivingStrategies #-}
+{-# language GeneralizedNewtypeDeriving #-}
+{-# language ScopedTypeVariables #-}
+{-# language StandaloneDeriving #-}
+
 import Asn.Ber (decode)
+import Asn.Oid (Oid)
 import Data.Bytes (Bytes)
 
+import qualified Asn.Oid as Oid
+import qualified Test.Tasty as Tasty
+import qualified Test.Tasty.HUnit as HUnit
+import qualified Test.Tasty.QuickCheck as QC
 import qualified Asn.Ber as Ber
 import qualified GHC.Exts as Exts
 
 main :: IO ()
-main = do
-  putStrLn "Starting"
-  putStrLn "Test A"
-  case decode exampleSignedData of
-    Left e -> fail ("Decoding signed data failed with: " ++ show e)
-    Right _ -> pure ()
-  putStrLn "Test B"
-  case decode badIntegerZero of
-    Left _ -> pure ()
-    Right _ -> fail ("Decoding bad integer zero succeeded unexpectedly.")
-  putStrLn "Test C"
-  case decode goodIntegerZero of
-    Left _ -> fail "Decoding good integer zero failed unexpectedly."
-    Right Ber.Value{Ber.contents = Ber.Integer 0} -> pure ()
-    Right _ -> fail "Decoding good integer zero gave bad result."
-  putStrLn "Finished"
+main = Tasty.defaultMain $ Tasty.testGroup "tests"
+  [ HUnit.testCase "signed-data" $ case decode exampleSignedData of
+      Left e -> fail ("Decoding signed data failed with: " ++ show e)
+      Right _ -> pure ()
+  , HUnit.testCase "bad-integer-zero" $ case decode badIntegerZero of
+      Left _ -> pure ()
+      Right _ -> fail ("Decoding bad integer zero succeeded unexpectedly.")
+  , HUnit.testCase "good-integer-zero" $ case decode goodIntegerZero of
+      Left _ -> fail "Decoding good integer zero failed unexpectedly."
+      Right Ber.Value{Ber.contents = Ber.Integer 0} -> pure ()
+      Right _ -> fail "Decoding good integer zero gave bad result."
+  , QC.testProperty "oid-encode-decode" $ \oid -> case Oid.size oid of
+      0 -> True
+      _ -> case Oid.fromShortTextDot (Oid.toShortText oid) of
+        Nothing -> False
+        Just r -> r == oid
+  ]
 
 badIntegerZero :: Bytes
 badIntegerZero = Exts.fromList [0x02,0x00]
@@ -69,3 +80,6 @@ exampleSignedData = Exts.fromList
   ,0xbc,0xc6,0x69,0x21,0x69,0x94,0xac,0x04,0xf3,0x41,0xb5,0x7d,0x05,0x20,0x2d,0x42
   ,0x8f,0xb2,0xa2,0x7b,0x5c,0x77,0xdf,0xd9,0xb1,0x5b,0xfc,0x3d,0x55,0x93,0x53,0x50
   ,0x34,0x10,0xc1,0xe1]
+
+instance QC.Arbitrary Oid where
+  arbitrary = Oid.Oid . Exts.fromList <$> QC.arbitrary
