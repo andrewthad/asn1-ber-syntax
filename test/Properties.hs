@@ -10,11 +10,13 @@ import Test.Tasty.QuickCheck ((===))
 import Test.Tasty.QuickCheck (testProperty)
 
 import qualified Asn.Ber as Ber
+import qualified Asn.Oid as Oid
 import qualified Asn.Ber.Encode as Ber
 import qualified Data.Bytes as Bytes
 import qualified Data.Primitive as Prim
 import qualified Data.Primitive.SmallArray as SA
 import qualified Data.Text.Short as TS
+import qualified GHC.Exts as Exts
 import qualified Test.QuickCheck.Gen as Gen
 
 
@@ -62,7 +64,7 @@ instance Arbitrary Value where
             a <- Gen.chooseBoundedIntegral (0,2)
             b <- Gen.chooseBoundedIntegral (0,39)
             rest <- arbitrary @[Word32]
-            let contents = ObjectIdentifier $ Prim.fromList (a:b:rest)
+            let contents = ObjectIdentifier (Oid.Oid (Exts.fromList (a:b:rest)))
             pure Value{tagClass,tagNumber,contents}
         , do
             let tagNumber = 0x0C

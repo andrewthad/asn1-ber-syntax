@@ -23,7 +23,7 @@ library
   build-depends:
     , array-chunks >=0.1
     , base >=4.13 && <5
-    , byteslice >=0.2.6 && <0.3
+    , byteslice >=0.2.7 && <0.3
     , bytesmith >=0.3 && <0.4
     , bytestring >=0.10
     , contiguous >=0.5
@@ -64,7 +64,7 @@ test-suite asn1-ber-syntax-golden
     , byteslice
     , bytestring
     , filepath
-    , pretty-simple
+    , pretty-simple >=3.3 && <4.0
     , primitive
     , tasty
     , tasty-golden

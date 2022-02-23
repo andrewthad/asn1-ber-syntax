@@ -1,4 +1,5 @@
 {-# language BangPatterns #-}
+{-# language DuplicateRecordFields #-}
 {-# language LambdaCase #-}
 {-# language MultiWayIf #-}
 {-# language NamedFieldPuns #-}
@@ -12,28 +13,27 @@ import Prelude hiding (length)
 
 import Asn.Ber (Value(..),Contents(..),Class(..))
 import Asn.Oid (Oid(..))
+import Control.Monad.ST (runST)
 import Data.Bits ((.&.),(.|.),unsafeShiftL,unsafeShiftR,bit,testBit)
-import Data.Bytes (Bytes)
+import Data.Bytes.Types (Bytes(Bytes))
 import Data.ByteString.Short.Internal (ShortByteString(SBS))
-import Data.Foldable (foldMap')
-import Data.Foldable(fold)
+import Data.Foldable (foldMap',foldlM)
 import Data.Int (Int64)
 import Data.Primitive (SmallArray,PrimArray)
 import Data.Primitive.ByteArray (byteArrayFromList,ByteArray(ByteArray))
-import Data.Vector (Vector)
 import Data.Word (Word8,Word32)
 
-
 import qualified Data.Primitive as Prim
-import qualified Data.Vector as V
+import qualified Data.Primitive.Contiguous as C
 import qualified Data.Bytes as Bytes
+import qualified Data.Bytes.Types
 import qualified Data.Text.Short as TS
 
 data Encoder
-  = Leaf Bytes
+  = Leaf {-# UNPACK #-} !Bytes
   | Node
     { _length :: !Int
-    , _children :: Vector Encoder
+    , _children :: !(SmallArray Encoder)
     }
   deriving(Show)
 
@@ -41,29 +41,46 @@ length :: Encoder -> Int
 length (Leaf bs) = Bytes.length bs
 length a@(Node _ _) = _length a
 
-children :: Encoder -> Vector Encoder
-children a@(Leaf _) = V.singleton a
-children a@(Node _ _ ) = _children a
-
 instance Semigroup Encoder where
   a <> b
     | length a == 0 = b
     | length b == 0 = a
   a <> b = Node
     { _length = length a + length b
-    , _children = V.fromListN 2 [a, b]
+    , _children = C.doubleton a b
     }
+
 instance Monoid Encoder where
-  mempty = Node 0 V.empty
+  mempty = Node 0 mempty
+
+append3 :: Encoder -> Encoder -> Encoder -> Encoder
+append3 a b c = Node
+  { _length = length a + length b + length c
+  , _children = C.tripleton a b c
+  }
+
 word8 :: Word8 -> Encoder
 word8 = Leaf . Bytes.singleton
+
 singleton :: Bytes -> Encoder
 singleton = Leaf
 
 run :: Encoder -> Bytes
 run (Leaf bs) = bs
--- FIXME this is dumb; I should alloc the length and then memcpy as needed
-run Node{_children} = fold $ run <$> _children
+run Node{_length=len0,_children=children0} = runST $ do
+  dst <- Prim.newByteArray len0
+  let go !ixA eA = case eA of
+        Leaf bs -> do
+          Bytes.unsafeCopy dst ixA bs
+          pure (Bytes.length bs + ixA)
+        Node{_length,_children} -> do
+          foldlM (\ixB eB -> go ixB eB) ixA _children
+  ixC <- foldlM (\ixA e -> go ixA e) 0 children0
+  if ixC /= len0
+    then errorWithoutStackTrace "Asn.Ber.Encode.run: implementation mistake"
+    else do
+      dst' <- Prim.unsafeFreezeByteArray dst
+      pure Bytes{array=dst',offset=0,length=len0}
 
 encode :: Value -> Bytes
 encode = run . encodeValue
@@ -71,7 +88,7 @@ encode = run . encodeValue
 encodeValue :: Value -> Encoder
 encodeValue v@Value{contents} =
   let theContent = encodeContents contents
-   in valueHeader v <> encodeLength (length theContent) <> theContent
+   in append3 (valueHeader v) (encodeLength (length theContent)) theContent
 
 valueHeader :: Value -> Encoder
 valueHeader Value{tagClass,tagNumber,contents} = byte1 <> extTag

@@ -20,6 +20,7 @@ module Asn.Resolve.Category
   , integer
   -- TODO bitString
   , octetString
+  , octetStringSingleton
   , null
   , oid
   , utf8String
@@ -48,10 +49,11 @@ import Data.Bytes (Bytes)
 import Data.Int (Int64)
 import Data.Primitive (SmallArray,SmallMutableArray)
 import Data.Text.Short (ShortText)
-import Data.Word (Word32)
+import Data.Word (Word32,Word8)
 
 import qualified Data.Primitive as PM
 import qualified Asn.Ber as Ber
+import qualified Data.Bytes as Bytes
 
 
 newtype Parser a b = P { unP :: a -> Path -> Either Path (b, Path) }
@@ -109,6 +111,20 @@ octetString :: Parser Value Bytes
 octetString = P $ \v p -> case v of
   Value{contents=OctetString bs} -> Right (bs, p)
   Value{contents=Unresolved bytes} -> unresolved Ber.decodeOctetString bytes p
+  _ -> Left p
+
+-- | Variant of 'octetString' that expects the @OctetString@ to have
+-- exactly one byte. Returns the value of the byte.
+octetStringSingleton :: Parser Value Word8
+octetStringSingleton = P $ \v p -> case v of
+  Value{contents=OctetString bs} -> case Bytes.length bs of
+    1 -> Right (Bytes.unsafeIndex bs 0, p)
+    _ -> Left p
+  Value{contents=Unresolved bytes} -> do
+    (bs,p') <- unresolved Ber.decodeOctetString bytes p
+    case Bytes.length bs of
+      1 -> Right (Bytes.unsafeIndex bs 0, p')
+      _ -> Left p'
   _ -> Left p
 
 null :: Parser Value ()

@@ -8,25 +8,22 @@ module Message
 
 import Prelude hiding (sequence)
 
+import Asn.Oid (Oid)
 import Asn.Resolve
 
 import Data.Bytes (Bytes)
 import Data.Int (Int64)
-import Data.Primitive (PrimArray,SmallArray)
-import Data.Word (Word32)
-
-type ObjectId = PrimArray Word32 -- FIXME there really should be an ObjectId type in Asn module
+import Data.Primitive (SmallArray)
 
 data Message = Message
   { version :: Int64
-  , community :: Bytes
+  , community :: {-# UNPACK #-} !Bytes
   , pdu :: Pdu
   }
   deriving(Show)
 data Pdu
   = GetRequest APdu
   | GetNextRequest APdu
-  -- | GetBulkRequest BulkPdus -- TODO
   | Response APdu
   | SetRequest APdu
   | InformRequest APdu
@@ -41,8 +38,8 @@ data APdu = Pdu
   }
   deriving(Show)
 data VarBind = VarBind
-  { name :: ObjectId
-  , result :: VarBindResult
+  { name :: !Oid
+  , result :: !VarBindResult
   }
   deriving(Show)
 data VarBindResult
@@ -55,7 +52,7 @@ data VarBindResult
 data ObjectSyntax
   = IntegerValue Int64
   | StringValue Bytes
-  | ObjectIdValue ObjectId
+  | ObjectIdValue Oid
   | IpAddressValue Bytes
   | CounterValue Int64
   | TimeticksValue Int64
