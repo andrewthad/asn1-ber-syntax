@@ -17,7 +17,6 @@ module Asn.Oid
 import Prelude hiding (take)
 
 import Control.Monad.ST (runST)
-import Data.List (intercalate)
 import Data.Primitive (PrimArray)
 import Data.Text.Short (ShortText)
 import Data.Word (Word32)
