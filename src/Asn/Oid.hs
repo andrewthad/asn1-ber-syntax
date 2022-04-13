@@ -83,13 +83,15 @@ fromShortTextDot !str =
         ) b
 
 size :: Oid -> Int
-size = Prim.sizeofPrimArray . getOid
+{-# inline size #-}
+size (Oid ws) = Prim.sizeofPrimArray ws
 
 index :: Oid -> Int -> Word32
+{-# inline index #-}
 index (Oid arr) = Prim.indexPrimArray arr
 
 take :: Oid -> Int -> Oid
-take (Oid preArr) len
+take (Oid !preArr) !len
   | len >= Prim.sizeofPrimArray preArr = Oid preArr
   | otherwise = runST $ do
     dst <- Prim.newPrimArray len
@@ -105,8 +107,8 @@ isPrefixOf (Oid preArr) (Oid arr)
     | i >= preSize = True
     | Prim.indexPrimArray preArr i /= Prim.indexPrimArray arr i = False
     | otherwise = go (i + 1)
-  preSize = Prim.sizeofPrimArray preArr
-  theSize = Prim.sizeofPrimArray arr
+  !preSize = Prim.sizeofPrimArray preArr
+  !theSize = Prim.sizeofPrimArray arr
 
 ba2st :: Prim.ByteArray -> ShortText
 {-# inline ba2st #-}
