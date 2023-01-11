@@ -115,6 +115,7 @@ encodeLength n
         lenHeader = word8 $ bit 7 .|. (fromIntegral @Int @Word8 (length len))
      in lenHeader <> len
 
+-- Note: UtcTime is missing and will crash the program
 encodeContents :: Contents -> Encoder
 encodeContents = \case
   Integer n -> base256 n
@@ -126,7 +127,6 @@ encodeContents = \case
     | otherwise -> objectIdentifier arr
   Utf8String str -> utf8String str
   PrintableString str -> printableString str
-  -- TODO UtcTime
   Constructed arr -> constructed arr
   Unresolved raw -> bytes raw
 
