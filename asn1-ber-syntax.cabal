@@ -1,6 +1,6 @@
 cabal-version: 2.4
 name: asn1-ber-syntax
-version: 0.1.0.0
+version: 0.2.0.0
 synopsis: ASN.1 BER Encode and Decode
 bug-reports: https://github.com/andrewthad/asn1-ber-syntax/issues
 license: BSD-3-Clause
