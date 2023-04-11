@@ -1,8 +1,10 @@
 {-# language BangPatterns #-}
+{-# language DataKinds #-}
 {-# language DuplicateRecordFields #-}
 {-# language LambdaCase #-}
 {-# language MultiWayIf #-}
 {-# language NamedFieldPuns #-}
+{-# language NumericUnderscores #-}
 {-# language TypeApplications #-}
 
 module Asn.Ber.Encode
@@ -26,8 +28,11 @@ import Data.Word (Word8,Word32)
 import qualified Data.Primitive as Prim
 import qualified Data.Primitive.Contiguous as C
 import qualified Data.Bytes as Bytes
+import qualified Data.Bytes.Builder.Bounded as BB
 import qualified Data.Bytes.Types
 import qualified Data.Text.Short as TS
+import qualified Chronos
+import qualified Arithmetic.Nat as Nat
 
 data Encoder
   = Leaf {-# UNPACK #-} !Bytes
@@ -115,10 +120,40 @@ encodeLength n
         lenHeader = word8 $ bit 7 .|. (fromIntegral @Int @Word8 (length len))
      in lenHeader <> len
 
--- Note: UtcTime is missing and will crash the program
 encodeContents :: Contents -> Encoder
 encodeContents = \case
   Integer n -> base256 n
+  Boolean b -> case b of
+    True -> word8 0xFF
+    False -> word8 0x00
+  UtcTime epochSeconds ->
+    let t = Chronos.Time (epochSeconds * 1_000_000_000)
+     in case Chronos.timeToDatetime t of
+          Chronos.Datetime
+            { datetimeDate = Chronos.Date
+              { dateYear = Chronos.Year year
+              , dateMonth = Chronos.Month month
+              , dateDay = Chronos.DayOfMonth day
+              }
+            , datetimeTime = Chronos.TimeOfDay
+              { timeOfDayHour = hour
+              , timeOfDayMinute = minute
+              , timeOfDayNanoseconds = nanoseconds
+              }
+            } -> Leaf $ Bytes.fromByteArray $ BB.run Nat.constant $
+              encodeTwoDigit (rem year 100)
+              `BB.append`
+              encodeTwoDigit (month + 1)
+              `BB.append`
+              encodeTwoDigit day
+              `BB.append`
+              encodeTwoDigit hour
+              `BB.append`
+              encodeTwoDigit minute
+              `BB.append`
+              encodeTwoDigit (fromIntegral @Int64 @Int (quot nanoseconds 1_000_000_000))
+              `BB.append`
+              BB.ascii 'Z'
   OctetString bs -> bytes bs
   BitString padBits bs -> word8 padBits <> bytes bs
   Null -> mempty
@@ -129,6 +164,12 @@ encodeContents = \case
   PrintableString str -> printableString str
   Constructed arr -> constructed arr
   Unresolved raw -> bytes raw
+
+encodeTwoDigit :: Int -> BB.Builder 2
+encodeTwoDigit !n =
+  BB.word8 (fromIntegral @Int @Word8 (0x30 + quot n 10))
+  `BB.append`
+  BB.word8 (fromIntegral @Int @Word8 (0x30 + rem n 10))
 
 ------------------ Content Encoders ------------------
 

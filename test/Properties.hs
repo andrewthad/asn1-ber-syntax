@@ -1,4 +1,5 @@
 {-# language NamedFieldPuns #-}
+{-# language NumericUnderscores #-}
 {-# language TypeApplications #-}
 
 import Asn.Ber (Value(..),Class(..),Contents(..))
@@ -18,6 +19,7 @@ import qualified Data.Primitive.SmallArray as SA
 import qualified Data.Text.Short as TS
 import qualified GHC.Exts as Exts
 import qualified Test.QuickCheck.Gen as Gen
+import qualified Test.QuickCheck as QC
 
 
 main :: IO ()
@@ -46,6 +48,15 @@ instance Arbitrary Value where
         [ do
             let tagNumber = 0x02
             contents <- Integer <$> arbitrary
+            pure Value{tagClass,tagNumber,contents}
+        , do
+            let tagNumber = 0x17
+            contents <- UtcTime <$> QC.choose
+              (-100_000_000,1_500_000_000)
+            pure Value{tagClass,tagNumber,contents}
+        , do
+            let tagNumber = 0x01
+            contents <- Boolean <$> arbitrary
             pure Value{tagClass,tagNumber,contents}
         , do
             contents <- OctetString <$> arbitrary
