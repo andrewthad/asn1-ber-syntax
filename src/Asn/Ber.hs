@@ -39,8 +39,10 @@ import Data.Word (Word8,Word32)
 import GHC.Exts (Int(I#))
 import GHC.ST (ST(ST))
 
+import qualified Chronos
 import qualified Data.Bytes as Bytes
 import qualified Data.Bytes.Parser as P
+import qualified Data.Bytes.Parser.Latin as Latin
 import qualified Data.Bytes.Parser.Base128 as Base128
 import qualified Data.Primitive as PM
 import qualified Data.Text.Short as TS
@@ -56,7 +58,9 @@ data Value = Value
   deriving stock (Eq)
 
 data Contents
-  = Integer !Int64
+  = Boolean !Bool
+    -- ^ Tag number: @0x01@
+  | Integer !Int64
     -- ^ Tag number: @0x02@
   | OctetString {-# UNPACK #-} !Bytes
     -- ^ Tag number: @0x04@
@@ -70,8 +74,18 @@ data Contents
     -- ^ Tag number: @0x0C@
   | PrintableString {-# UNPACK #-} !TS.ShortText
     -- ^ Tag number: @0x13@
-  | UtcTime
-    -- ^ Tag number: @0x17@
+  | UtcTime !Int64
+    -- ^ Tag number: @0x17@. Number of seconds since the epoch.
+    -- The following guidance is inspired by RFC 5280:
+    --
+    -- * A two-digit year greater than or equal to 50 is interpreted
+    --   as 19XX, and a two-digit year less than 50 is intepreted
+    --   as 20XX.
+    -- * Everything is converted to Zulu time zone. Unlike RFC 5280,
+    --   we do not require Zulu, but we convert everything to it.
+    -- * When seconds are absent, we treat the timestamp as one where
+    --   the seconds are zero. That is, we understand 2303252359Z as
+    --   2023-03-25T23:59:00Z.
   | Constructed !(SmallArray Value)
     -- ^ Constructed value contents in concatenation order.
     -- The class and tag are held in `Value`.
@@ -265,8 +279,20 @@ bitString = do
   n <- takeLength
   when (n < 1) (P.fail "bitstring must have length of at least 1")
   padding <- P.any "expected a padding bit count"
-  bs <- P.take "while decoding octet string, not enough bytes" (fromIntegral (n - 1))
-  pure (BitString padding bs)
+  if padding >= 8
+    then P.fail "bitstring has more than 7 padding bits"
+    else do
+      bs <- P.take "while decoding octet string, not enough bytes" (fromIntegral (n - 1))
+      pure (BitString padding bs)
+
+boolean :: Parser String s Contents
+boolean = takeLength >>= \case
+  1 -> do
+    w <- P.any "expected boolean payload"
+    pure $ Boolean $ case w of
+      0 -> False
+      _ -> True
+  _ -> P.fail "boolean length must be 1 byte"
 
 integer :: Parser String s Contents
 integer = takeLength >>= \case
@@ -290,9 +316,72 @@ integerPayload len = do
 -- TODO: write this
 utcTime :: Parser String s Contents
 utcTime = do
-  n <- takeLength
-  _ <- P.take "while decoding utctime, not enough bytes" (fromIntegral n)
-  pure UtcTime
+  len <- takeLength
+  P.delimit "utctime not enough bytes" "utctime leftovers" (fromIntegral len) $ do
+    !year0 <- twoDigits "utctime year digit problem"
+    let !year = if year0 >= 50 then 1900 + year0 else 2000 + year0
+    !month <- twoDigits "utctime month digit problem"
+    !day <- twoDigits "utctime day digit problem"
+    !hour <- twoDigits "utctime hour digit problem"
+    !minute <- twoDigits "utctime minute digit problem"
+    -- Offset must be provided in seconds.
+    let finishWithoutSeconds !offset = case Chronos.timeFromYmdhms year month day hour minute 0 of
+          Chronos.Time ns -> pure $! UtcTime (offset + div ns 1_000_000_000)
+    let finishWithSeconds !offset !seconds = case Chronos.timeFromYmdhms year month day hour minute seconds of
+          Chronos.Time ns -> pure $! UtcTime (offset + div ns 1_000_000_000)
+    Latin.peek >>= \case
+      Nothing -> finishWithoutSeconds 0
+      Just c -> case c of
+        'Z' -> do
+          _ <- P.any "utctime impossible"
+          finishWithoutSeconds 0
+        '+' -> do
+          _ <- P.any "utctime impossible"
+          !offsetHour <- twoDigits "utctime offset hour digit problem"
+          !offsetMinute <- twoDigits "utctime offset minute digit problem"
+          let !offset = fromIntegral @Int @Int64 (negate (60 * (60 * offsetHour + offsetMinute)))
+          finishWithoutSeconds offset
+        '-' -> do
+          _ <- P.any "utctime impossible"
+          !offsetHour <- twoDigits "utctime offset hour digit problem"
+          !offsetMinute <- twoDigits "utctime offset minute digit problem"
+          let !offset = fromIntegral @Int @Int64 (60 * (60 * offsetHour + offsetMinute))
+          finishWithoutSeconds offset
+        _ | c >= '0', c <= '9' -> do
+              seconds <- twoDigits "utctime seconds digit problem"
+              Latin.peek >>= \case
+                Nothing -> finishWithSeconds 0 seconds
+                Just d -> case d of
+                  'Z' -> do
+                    _ <- P.any "utctime impossible"
+                    finishWithSeconds 0 seconds
+                  '+' -> do
+                    _ <- P.any "utctime impossible"
+                    !offsetHour <- twoDigits "utctime offset hour digit problem"
+                    !offsetMinute <- twoDigits "utctime offset minute digit problem"
+                    let !offset = fromIntegral @Int @Int64 (negate (60 * (60 * offsetHour + offsetMinute)))
+                    finishWithSeconds offset seconds
+                  '-' -> do
+                    _ <- P.any "utctime impossible"
+                    !offsetHour <- twoDigits "utctime offset hour digit problem"
+                    !offsetMinute <- twoDigits "utctime offset minute digit problem"
+                    let !offset = fromIntegral @Int @Int64 (60 * (60 * offsetHour + offsetMinute))
+                    finishWithSeconds offset seconds
+                  _ -> P.fail "utctime unexpected byte after seconds"
+        _ -> P.fail "utctime unexpected byte after minute"
+
+twoDigits :: e -> Parser e s Int
+{-# inline twoDigits #-}
+twoDigits e = do
+  w0 <- P.any e
+  w0' <- if w0 >= 0x30 && w0 <= 0x39
+    then pure (fromIntegral @Word8 @Int w0 - 0x30)
+    else P.fail e
+  w1 <- P.any e
+  w1' <- if w1 >= 0x30 && w1 <= 0x39
+    then pure (fromIntegral @Word8 @Int w1 - 0x30)
+    else P.fail e
+  pure (w0' * 10 + w1')
 
 nullParser :: Parser String s Contents
 nullParser = fmap (const Null) . nullPayload =<< takeLength
@@ -321,6 +410,7 @@ parser = do
     | Universal <- tagClass
     , not isConstructed
     -> case tagNumber of
+      0x01 -> boolean
       0x13 -> printableString
       0x02 -> integer
       0x03 -> bitString
