@@ -2,10 +2,13 @@
 {-# language DeriveFunctor #-}
 {-# language DerivingStrategies #-}
 {-# language LambdaCase #-}
+{-# language MagicHash #-}
 {-# language NamedFieldPuns #-}
 {-# language RankNTypes #-}
 {-# language ScopedTypeVariables #-}
 {-# language TupleSections #-}
+{-# language TypeApplications #-}
+{-# language UnboxedTuples #-}
 
 -- | Transform between Haskell values and the 'Value' type. The instance you
 -- write for 'ToAsn' and 'FromAsn' assume a schema. I (Eric) think this is
@@ -14,10 +17,12 @@ module Asn.Resolve.Category
   ( Parser
   , run
   -- * Combinators
+  , explicit
   , arr
   , (>->)
   , fail
   , integer
+  , word8
   -- TODO bitString
   , octetString
   , octetStringSingleton
@@ -100,6 +105,19 @@ fail = P $ const Left
 
 unresolved :: (Bytes -> Either String a) -> Bytes -> Path -> Either Path (a, Path)
 unresolved f bs p = bimap (const p) (,p) (f bs)
+
+-- | Same as integer but restricts the range.
+word8 :: Parser Value Word8
+word8 = P $ \v p -> case v of
+  Value{contents=Integer n} -> if n >= 0 && n < 256
+    then Right (fromIntegral @Int64 @Word8 n, p)
+    else Left p
+  Value{contents=Unresolved bytes} -> do
+    (n,p') <- unresolved Ber.decodeInteger bytes p
+    if n >= 0 && n < 256
+      then Right (fromIntegral @Int64 @Word8 n, p')
+      else Left p'
+  _ -> Left p
 
 integer :: Parser Value Int64
 integer = P $ \v p -> case v of
@@ -191,6 +209,17 @@ withTag cls num = P $ \v p -> case v of
   Value{tagClass,tagNumber}
     | tagClass == cls && tagNumber == num ->
       Right (v, Tag cls num p)
+  _ -> Left p
+
+explicit :: Word32 -> Parser Value Value
+explicit w = P $ \v p -> case v of
+  Value{tagClass,tagNumber,contents}
+    | tagClass == ContextSpecific
+    , tagNumber == w
+    , Constructed children <- contents
+    , PM.sizeofSmallArray children == 1
+    , (# ch #) <- PM.indexSmallArray## children 0 ->
+      Right (ch, Tag ContextSpecific w p)
   _ -> Left p
 
 chooseTag :: [(Class, Word32, Parser Value a)] -> Parser Value a
