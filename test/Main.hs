@@ -4,28 +4,36 @@
 {-# language StandaloneDeriving #-}
 
 import Asn.Ber (decode)
-import Asn.Oid (Oid)
+import Asn.Oid (Oid(Oid))
 import Data.Bytes (Bytes)
+import Test.Tasty.HUnit ((@=?))
 
 import qualified Asn.Oid as Oid
+import qualified Data.Bytes as Bytes
 import qualified Test.Tasty as Tasty
 import qualified Test.Tasty.HUnit as HUnit
 import qualified Test.Tasty.QuickCheck as QC
 import qualified Asn.Ber as Ber
 import qualified GHC.Exts as Exts
+import qualified Asn.Ber.Primitive.Decode as Decode
+import qualified Asn.Ber.Primitive.Encode as Encode
 
 main :: IO ()
 main = Tasty.defaultMain $ Tasty.testGroup "tests"
   [ HUnit.testCase "signed-data" $ case decode exampleSignedData of
       Left e -> fail ("Decoding signed data failed with: " ++ show e)
       Right _ -> pure ()
-  , HUnit.testCase "bad-integer-zero" $ case decode badIntegerZero of
-      Left _ -> pure ()
-      Right _ -> fail ("Decoding bad integer zero succeeded unexpectedly.")
-  , HUnit.testCase "good-integer-zero" $ case decode goodIntegerZero of
-      Left _ -> fail "Decoding good integer zero failed unexpectedly."
-      Right Ber.Value{Ber.contents = Ber.Integer 0} -> pure ()
-      Right _ -> fail "Decoding good integer zero gave bad result."
+  , HUnit.testCase "bad-integer-zero" $ case Decode.int64 badIntegerZero of
+      Nothing -> pure ()
+      Just _ -> fail ("Decoding bad integer zero succeeded unexpectedly.")
+  , HUnit.testCase "good-integer-zero" $ case Decode.int64 goodIntegerZero of
+      Nothing -> fail "Decoding good integer zero failed unexpectedly."
+      Just 0 -> pure ()
+      Just i -> fail ("Decoding good integer zero gave bad result: " ++ show i)
+  , HUnit.testCase "oid-encode-001" $
+      Exts.fromList [0x2a,0x86,0x48,0x86,0xf7,0x0d]
+      @=?
+      Encode.oid (Oid (Exts.fromList [1,2,840,113549]))
   , QC.testProperty "oid-encode-decode" $ \oid -> case Oid.size oid of
       0 -> True
       _ -> case Oid.fromShortTextDot (Oid.toShortText oid) of
@@ -34,10 +42,10 @@ main = Tasty.defaultMain $ Tasty.testGroup "tests"
   ]
 
 badIntegerZero :: Bytes
-badIntegerZero = Exts.fromList [0x02,0x00]
+badIntegerZero = Bytes.empty
 
 goodIntegerZero :: Bytes
-goodIntegerZero = Exts.fromList [0x02,0x01,0x00]
+goodIntegerZero = Exts.fromList [0x00]
 
 -- Taken from https://www.di-mgt.com.au/docs/examplesPKCS.txt
 exampleSignedData :: Bytes

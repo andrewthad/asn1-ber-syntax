@@ -21,7 +21,9 @@ module Asn.Resolve.Category
   , arr
   , (>->)
   , fail
-  , integer
+  , primitive
+  , int64
+  , utcTime
   , word8
   -- TODO bitString
   , octetString
@@ -32,6 +34,7 @@ module Asn.Resolve.Category
   , printableString
   , sequenceOf
   , sequence
+  , set
   , index
   , withTag
   , chooseTag
@@ -57,9 +60,8 @@ import Data.Text.Short (ShortText)
 import Data.Word (Word32,Word8)
 
 import qualified Data.Primitive as PM
-import qualified Asn.Ber as Ber
 import qualified Data.Bytes as Bytes
-
+import qualified Asn.Ber.Primitive.Decode as Decode
 
 newtype Parser a b = P { unP :: a -> Path -> Either Path (b, Path) }
 
@@ -76,6 +78,7 @@ instance Applicative (Parser a) where
       Left err -> Left err
     Left err -> Left err
 
+-- | Similar to the @arr@ method of @Arrow@.
 arr :: (a -> Maybe b) -> Parser a b
 arr f = P $ \v p -> case f v of
   Just v' -> Right (v', p)
@@ -103,43 +106,47 @@ run r v = bimap reverse fst $ unP r v Nil
 fail :: Parser a b
 fail = P $ const Left
 
-unresolved :: (Bytes -> Either String a) -> Bytes -> Path -> Either Path (a, Path)
-unresolved f bs p = bimap (const p) (,p) (f bs)
+liftDecode :: (Bytes -> Maybe a) -> Bytes -> Path -> Either Path (a, Path)
+liftDecode f bs p = maybe (Left p) (\x -> Right (x,p)) (f bs)
+
+-- | Expects primitive encoded data. Do not use this for string-like
+-- types since it will reject constructed encodings.
+primitive :: Parser Value Bytes
+primitive = P $ \v p -> case v of
+  Value{contents=Primitive bytes} -> Right (bytes,p)
+  _ -> Left p
 
 -- | Same as integer but restricts the range.
 word8 :: Parser Value Word8
 word8 = P $ \v p -> case v of
-  Value{contents=Integer n} -> if n >= 0 && n < 256
-    then Right (fromIntegral @Int64 @Word8 n, p)
-    else Left p
-  Value{contents=Unresolved bytes} -> do
-    (n,p') <- unresolved Ber.decodeInteger bytes p
+  Value{contents=Primitive bytes} -> do
+    (n,p') <- liftDecode Decode.int64 bytes p
     if n >= 0 && n < 256
       then Right (fromIntegral @Int64 @Word8 n, p')
       else Left p'
   _ -> Left p
 
-integer :: Parser Value Int64
-integer = P $ \v p -> case v of
-  Value{contents=Integer n} -> Right (n, p)
-  Value{contents=Unresolved bytes} -> unresolved Ber.decodeInteger bytes p
+utcTime :: Parser Value Int64
+utcTime = P $ \v p -> case v of
+  Value{contents=Primitive bytes} -> liftDecode Decode.utcTime bytes p
+  _ -> Left p
+
+int64 :: Parser Value Int64
+int64 = P $ \v p -> case v of
+  Value{contents=Primitive bytes} -> liftDecode Decode.int64 bytes p
   _ -> Left p
 
 octetString :: Parser Value Bytes
 octetString = P $ \v p -> case v of
-  Value{contents=OctetString bs} -> Right (bs, p)
-  Value{contents=Unresolved bytes} -> unresolved Ber.decodeOctetString bytes p
+  Value{contents=Primitive bytes} -> liftDecode Decode.octetString bytes p
   _ -> Left p
 
 -- | Variant of 'octetString' that expects the @OctetString@ to have
 -- exactly one byte. Returns the value of the byte.
 octetStringSingleton :: Parser Value Word8
 octetStringSingleton = P $ \v p -> case v of
-  Value{contents=OctetString bs} -> case Bytes.length bs of
-    1 -> Right (Bytes.unsafeIndex bs 0, p)
-    _ -> Left p
-  Value{contents=Unresolved bytes} -> do
-    (bs,p') <- unresolved Ber.decodeOctetString bytes p
+  Value{contents=Primitive bytes} -> do
+    (bs,p') <- liftDecode Decode.octetString bytes p
     case Bytes.length bs of
       1 -> Right (Bytes.unsafeIndex bs 0, p')
       _ -> Left p'
@@ -147,31 +154,28 @@ octetStringSingleton = P $ \v p -> case v of
 
 null :: Parser Value ()
 null = P $ \v p -> case v of
-  Value{contents=Null} -> Right ((), p)
-  Value{contents=Unresolved bytes} -> unresolved Ber.decodeNull bytes p
+  Value{contents=Primitive bytes} -> liftDecode Decode.null bytes p
   _ -> Left p
 
 oid :: Parser Value Oid
 oid = P $ \v p -> case v of
-  Value{contents=ObjectIdentifier objId} -> Right (objId, p)
-  Value{contents=Unresolved bytes} -> unresolved Ber.decodeObjectId bytes p
+  Value{contents=Primitive bytes} -> liftDecode Decode.oid bytes p
   _ -> Left p
 
 utf8String :: Parser Value ShortText
 utf8String = P $ \v p -> case v of
-  Value{contents=Utf8String str} -> Right (str, p)
-  Value{contents=Unresolved bytes} -> unresolved Ber.decodeUtf8String bytes p
+  Value{contents=Primitive bytes} -> liftDecode Decode.utf8String bytes p
   _ -> Left p
 
 printableString :: Parser Value ShortText
 printableString = P $ \v p -> case v of
-  Value{contents=PrintableString str} -> Right (str, p)
-  Value{contents=Unresolved bytes} -> unresolved Ber.decodePrintableString bytes p
+  Value{contents=Primitive bytes} -> liftDecode Decode.printableString bytes p
   _ -> Left p
 
+-- We do not check the tag so that we can reuse this for set.
 sequenceOf :: forall a. Parser Value a -> Parser Value (SmallArray a)
 sequenceOf k = P $ \v p -> case v of
-  Value{tagNumber=16, contents=Constructed vals} -> runST $ do
+  Value{contents=Constructed vals} -> runST $ do
     dst <- PM.newSmallArray (PM.sizeofSmallArray vals) undefined
     second (,p) <$> go vals dst p 0
   _ -> Left p
@@ -192,10 +196,15 @@ sequenceOf k = P $ \v p -> case v of
           go src dst p0 (ix + 1)
     | otherwise = Right <$> PM.unsafeFreezeSmallArray dst
 
+-- TODO: check the tag
 sequence :: Parser Value (SmallArray Value)
 sequence = P $ \v p -> case v of
   Value{contents=Constructed vals} -> Right (vals, p)
   _ -> Left p
+
+-- TODO: check the tag
+set :: forall a. Parser Value a -> Parser Value (SmallArray a)
+set = sequenceOf
 
 index :: Int -> Parser (SmallArray a) a
 index ix = P $ \vals p ->

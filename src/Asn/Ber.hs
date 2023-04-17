@@ -16,12 +16,6 @@ module Asn.Ber
   , Contents(..)
   , Class(..)
   , decode
-  , decodeInteger
-  , decodeOctetString
-  , decodeNull
-  , decodeObjectId
-  , decodeUtf8String
-  , decodePrintableString
     -- * Constructed Patterns
   , pattern Set
   , pattern Sequence
@@ -58,38 +52,38 @@ data Value = Value
   deriving stock (Eq)
 
 data Contents
-  = Boolean !Bool
-    -- ^ Tag number: @0x01@
-  | Integer !Int64
-    -- ^ Tag number: @0x02@
-  | OctetString {-# UNPACK #-} !Bytes
-    -- ^ Tag number: @0x04@
-  | BitString !Word8 {-# UNPACK #-} !Bytes
-    -- ^ Tag number: @0x03@. Has padding bit count and raw bytes.
-  | Null
-    -- ^ Tag number: @0x05@
-  | ObjectIdentifier !Oid
-    -- ^ Tag number: @0x06@
-  | Utf8String {-# UNPACK #-} !TS.ShortText
-    -- ^ Tag number: @0x0C@
-  | PrintableString {-# UNPACK #-} !TS.ShortText
-    -- ^ Tag number: @0x13@
-  | UtcTime !Int64
-    -- ^ Tag number: @0x17@. Number of seconds since the epoch.
-    -- The following guidance is inspired by RFC 5280:
-    --
-    -- * A two-digit year greater than or equal to 50 is interpreted
-    --   as 19XX, and a two-digit year less than 50 is intepreted
-    --   as 20XX.
-    -- * Everything is converted to Zulu time zone. Unlike RFC 5280,
-    --   we do not require Zulu, but we convert everything to it.
-    -- * When seconds are absent, we treat the timestamp as one where
-    --   the seconds are zero. That is, we understand 2303252359Z as
-    --   2023-03-25T23:59:00Z.
-  | Constructed !(SmallArray Value)
+  -- x = Boolean !Bool
+  -- x   -- ^ Tag number: @0x01@
+  -- x | Integer !Int64
+  -- x   -- ^ Tag number: @0x02@
+  -- x | OctetString {-# UNPACK #-} !Bytes
+  -- x   -- ^ Tag number: @0x04@
+  -- x | BitString !Word8 {-# UNPACK #-} !Bytes
+  -- x   -- ^ Tag number: @0x03@. Has padding bit count and raw bytes.
+  -- x | Null
+  -- x   -- ^ Tag number: @0x05@
+  -- x | ObjectIdentifier !Oid
+  -- x   -- ^ Tag number: @0x06@
+  -- x | Utf8String {-# UNPACK #-} !TS.ShortText
+  -- x   -- ^ Tag number: @0x0C@
+  -- x | PrintableString {-# UNPACK #-} !TS.ShortText
+  -- x   -- ^ Tag number: @0x13@
+  -- x | UtcTime !Int64
+  -- x   -- ^ Tag number: @0x17@. Number of seconds since the epoch.
+  -- x   -- The following guidance is inspired by RFC 5280:
+  -- x   --
+  -- x   -- * A two-digit year greater than or equal to 50 is interpreted
+  -- x   --   as 19XX, and a two-digit year less than 50 is intepreted
+  -- x   --   as 20XX.
+  -- x   -- * Everything is converted to Zulu time zone. Unlike RFC 5280,
+  -- x   --   we do not require Zulu, but we convert everything to it.
+  -- x   -- * When seconds are absent, we treat the timestamp as one where
+  -- x   --   the seconds are zero. That is, we understand 2303252359Z as
+  -- x   --   2023-03-25T23:59:00Z.
+  = Constructed {-# UNPACK #-} !(SmallArray Value)
     -- ^ Constructed value contents in concatenation order.
     -- The class and tag are held in `Value`.
-  | Unresolved {-# UNPACK #-} !Bytes
+  | Primitive {-# UNPACK #-} !Bytes
     -- ^ Values that require information about interpreting application,
     -- context-specific, or private tag.
   deriving stock (Show)
@@ -116,24 +110,6 @@ decodePayload k bs =
   let len = fromIntegral @Int @Word (Bytes.length bs)
    in P.parseBytesEither (k len) bs
 
-decodeInteger :: Bytes -> Either String Int64
-decodeInteger = decodePayload integerPayload
-
-decodeOctetString :: Bytes -> Either String Bytes
-decodeOctetString = decodePayload octetStringPayload
-
-decodeNull :: Bytes -> Either String ()
-decodeNull = decodePayload nullPayload
-
-decodeObjectId :: Bytes -> Either String Oid
-decodeObjectId = decodePayload objectIdentifierPayload
-
-decodeUtf8String :: Bytes -> Either String TS.ShortText
-decodeUtf8String = decodePayload utf8StringPayload
-
-decodePrintableString :: Bytes -> Either String TS.ShortText
-decodePrintableString = decodePayload printableStringPayload
-
 takeLength :: Parser String s Word
 takeLength = do
   w <- P.any "tried to take the length"
@@ -150,46 +126,11 @@ takeLength = do
               else P.fail "that is a giant length, bailing out"
       go (fromIntegral @Word8 @Word w .&. 0b01111111) 0
 
-objectIdentifier :: Parser String s Contents
-objectIdentifier = fmap ObjectIdentifier . objectIdentifierPayload =<< takeLength
-
-objectIdentifierPayload :: Word -> Parser String s Oid
-objectIdentifierPayload len = do
-  when (len < 1) (P.fail "oid must have length of at least 1")
-  P.delimit "oid not enough bytes" "oid leftovers" (fromIntegral len) $ do
-    w0 <- P.any "oid expecting first byte"
-    let (v1, v2) = quotRem w0 40
-        initialSize = 12
-    buf0 <- P.effect (PM.newPrimArray initialSize)
-    P.effect $ do
-      PM.writePrimArray buf0 0 (fromIntegral @Word8 @Word32 v1)
-      PM.writePrimArray buf0 1 (fromIntegral @Word8 @Word32 v2)
-    let go !ix !sz !buf = P.isEndOfInput >>= \case
-          True -> do
-            res <- P.effect $ do
-              PM.shrinkMutablePrimArray buf ix
-              PM.unsafeFreezePrimArray buf
-            pure (Oid res)
-          False -> if ix < sz
-            then do
-              w <- Base128.word32 "bad oid fragment"
-              P.effect (PM.writePrimArray buf ix w)
-              go (ix + 1) sz buf
-            else do
-              let newSz = sz * 2
-              newBuf <- P.effect $ do
-                newBuf <- PM.newPrimArray newSz
-                PM.copyMutablePrimArray newBuf 0 buf 0 sz
-                pure newBuf
-              go ix newSz newBuf
-    go 2 initialSize buf0
-
-
-unresolved :: Parser String s Contents
-unresolved = do
+primitive :: Parser String s Contents
+primitive = do
   n <- takeLength
   bs <- P.take "while decoding unresolved contents, not enough bytes" (fromIntegral n)
-  pure (Unresolved bs)
+  pure (Primitive bs)
 
 constructed :: Parser String s Contents
 constructed = do
@@ -225,171 +166,6 @@ errorThunk :: a
 {-# noinline errorThunk #-}
 errorThunk = errorWithoutStackTrace "Asn.Ber: implementation mistake"
 
-utf8String :: Parser String s Contents
-utf8String = fmap Utf8String . utf8StringPayload =<< takeLength
-
-utf8StringPayload :: Word -> Parser String s TS.ShortText
-utf8StringPayload len = do
-  bs <- P.take "while decoding UTF-8 string, not enough bytes" (fromIntegral len)
-  case TS.fromShortByteString (ba2sbs (Bytes.toByteArrayClone bs)) of
-    Nothing -> P.fail "found non-UTF-8 byte sequences in printable string"
-    Just r -> pure r
-
-
-printableString :: Parser String s Contents
-printableString = fmap PrintableString . printableStringPayload =<< takeLength
-
-printableStringPayload :: Word -> Parser String s TS.ShortText
-printableStringPayload len = do
-  bs <- P.take "while decoding printable string, not enough bytes" (fromIntegral len)
-  if Bytes.all isPrintable bs
-    then pure $! ba2stUnsafe $! Bytes.toByteArrayClone bs
-    else P.fail "found non-printable characters in printable string"
-
-isPrintable :: Word8 -> Bool
-isPrintable = \case
-  0x20 -> True
-  0x27 -> True
-  0x28 -> True
-  0x29 -> True
-  0x2B -> True
-  0x2C -> True
-  0x2D -> True
-  0x2E -> True
-  0x2F -> True
-  0x3A -> True
-  0x3D -> True
-  0x3F -> True
-  w | w >= 0x41 && w <= 0x5A -> True
-  w | w >= 0x61 && w <= 0x7A -> True
-  w | w >= 0x30 && w <= 0x39 -> True
-  _ -> False
-
-octetString :: Parser String s Contents
-octetString = fmap OctetString . octetStringPayload =<< takeLength
-
-octetStringPayload :: Word -> Parser String s Bytes
-octetStringPayload len = do
-  P.take "while decoding octet string, not enough bytes" (fromIntegral len)
-
--- The whole bit string thing is kind of janky, but SNMP does not use
--- it, so it is not terribly important.
-bitString :: Parser String s Contents
-bitString = do
-  n <- takeLength
-  when (n < 1) (P.fail "bitstring must have length of at least 1")
-  padding <- P.any "expected a padding bit count"
-  if padding >= 8
-    then P.fail "bitstring has more than 7 padding bits"
-    else do
-      bs <- P.take "while decoding octet string, not enough bytes" (fromIntegral (n - 1))
-      pure (BitString padding bs)
-
-boolean :: Parser String s Contents
-boolean = takeLength >>= \case
-  1 -> do
-    w <- P.any "expected boolean payload"
-    pure $ Boolean $ case w of
-      0 -> False
-      _ -> True
-  _ -> P.fail "boolean length must be 1 byte"
-
-integer :: Parser String s Contents
-integer = takeLength >>= \case
-  0 -> P.fail "integers must have non-zero length"
-  n | n <= 8 -> Integer <$> integerPayload n
-    | otherwise -> do
-      -- TODO parse bignums
-      P.fail (show n ++ "-octet integer is too large to store in an Int64")
-
-integerPayload :: Word -> Parser String s Int64
-integerPayload len = do
-  content <- P.take "while decoding integer, not enough bytes" (fromIntegral len)
-  -- There are not zero-length integer encodings in BER, and we guared
-  -- against this above, so taking the head with unsafeIndex is safe.
-  let isNegative = testBit (Bytes.unsafeIndex content 0) 7
-      loopBody acc b = (acc `unsafeShiftL` 8) .|. fromIntegral @Word8 @Int64 b
-  pure $ if isNegative
-    then Bytes.foldl' loopBody (complement 0) content
-    else Bytes.foldl' loopBody 0 content
-
--- TODO: write this
-utcTime :: Parser String s Contents
-utcTime = do
-  len <- takeLength
-  P.delimit "utctime not enough bytes" "utctime leftovers" (fromIntegral len) $ do
-    !year0 <- twoDigits "utctime year digit problem"
-    let !year = if year0 >= 50 then 1900 + year0 else 2000 + year0
-    !month <- twoDigits "utctime month digit problem"
-    !day <- twoDigits "utctime day digit problem"
-    !hour <- twoDigits "utctime hour digit problem"
-    !minute <- twoDigits "utctime minute digit problem"
-    -- Offset must be provided in seconds.
-    let finishWithoutSeconds !offset = case Chronos.timeFromYmdhms year month day hour minute 0 of
-          Chronos.Time ns -> pure $! UtcTime (offset + div ns 1_000_000_000)
-    let finishWithSeconds !offset !seconds = case Chronos.timeFromYmdhms year month day hour minute seconds of
-          Chronos.Time ns -> pure $! UtcTime (offset + div ns 1_000_000_000)
-    Latin.peek >>= \case
-      Nothing -> finishWithoutSeconds 0
-      Just c -> case c of
-        'Z' -> do
-          _ <- P.any "utctime impossible"
-          finishWithoutSeconds 0
-        '+' -> do
-          _ <- P.any "utctime impossible"
-          !offsetHour <- twoDigits "utctime offset hour digit problem"
-          !offsetMinute <- twoDigits "utctime offset minute digit problem"
-          let !offset = fromIntegral @Int @Int64 (negate (60 * (60 * offsetHour + offsetMinute)))
-          finishWithoutSeconds offset
-        '-' -> do
-          _ <- P.any "utctime impossible"
-          !offsetHour <- twoDigits "utctime offset hour digit problem"
-          !offsetMinute <- twoDigits "utctime offset minute digit problem"
-          let !offset = fromIntegral @Int @Int64 (60 * (60 * offsetHour + offsetMinute))
-          finishWithoutSeconds offset
-        _ | c >= '0', c <= '9' -> do
-              seconds <- twoDigits "utctime seconds digit problem"
-              Latin.peek >>= \case
-                Nothing -> finishWithSeconds 0 seconds
-                Just d -> case d of
-                  'Z' -> do
-                    _ <- P.any "utctime impossible"
-                    finishWithSeconds 0 seconds
-                  '+' -> do
-                    _ <- P.any "utctime impossible"
-                    !offsetHour <- twoDigits "utctime offset hour digit problem"
-                    !offsetMinute <- twoDigits "utctime offset minute digit problem"
-                    let !offset = fromIntegral @Int @Int64 (negate (60 * (60 * offsetHour + offsetMinute)))
-                    finishWithSeconds offset seconds
-                  '-' -> do
-                    _ <- P.any "utctime impossible"
-                    !offsetHour <- twoDigits "utctime offset hour digit problem"
-                    !offsetMinute <- twoDigits "utctime offset minute digit problem"
-                    let !offset = fromIntegral @Int @Int64 (60 * (60 * offsetHour + offsetMinute))
-                    finishWithSeconds offset seconds
-                  _ -> P.fail "utctime unexpected byte after seconds"
-        _ -> P.fail "utctime unexpected byte after minute"
-
-twoDigits :: e -> Parser e s Int
-{-# inline twoDigits #-}
-twoDigits e = do
-  w0 <- P.any e
-  w0' <- if w0 >= 0x30 && w0 <= 0x39
-    then pure (fromIntegral @Word8 @Int w0 - 0x30)
-    else P.fail e
-  w1 <- P.any e
-  w1' <- if w1 >= 0x30 && w1 <= 0x39
-    then pure (fromIntegral @Word8 @Int w1 - 0x30)
-    else P.fail e
-  pure (w0' * 10 + w1')
-
-nullParser :: Parser String s Contents
-nullParser = fmap (const Null) . nullPayload =<< takeLength
-
-nullPayload :: Word -> Parser String s ()
-nullPayload 0 = pure ()
-nullPayload len = P.fail ("expecting null contents to have length zero, got " ++ show len)
-
 
 classFromUpperBits :: Word8 -> Class
 classFromUpperBits w = case unsafeShiftR w 6 of
@@ -406,22 +182,7 @@ parser = do
   tagNumber <- case b .&. 0b00011111 of
         31 -> Base128.word32 "bad big tag"
         num -> pure $ fromIntegral @Word8 @Word32 num
-  contents <- if
-    | Universal <- tagClass
-    , not isConstructed
-    -> case tagNumber of
-      0x01 -> boolean
-      0x13 -> printableString
-      0x02 -> integer
-      0x03 -> bitString
-      0x04 -> octetString
-      0x05 -> nullParser
-      0x06 -> objectIdentifier
-      0x0C -> utf8String
-      0x17 -> utcTime
-      _ -> P.fail ("unrecognized universal primitive tag number " ++ show tagNumber)
-    | isConstructed -> constructed
-    | otherwise -> unresolved
+  contents <- if isConstructed then constructed else primitive
   pure Value{tagClass, tagNumber, contents}
 
 ba2stUnsafe :: PM.ByteArray -> TS.ShortText

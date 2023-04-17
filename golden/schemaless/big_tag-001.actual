@@ -1,7 +1,7 @@
 Value
     { tagClass = Application
     , tagNumber = 5040
-    , contents = Unresolved
+    , contents = Primitive
         [ 0x81
         , 0x09
         ]

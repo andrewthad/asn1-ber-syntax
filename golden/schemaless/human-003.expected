@@ -1,0 +1,167 @@
+Value
+    { tagClass = Universal
+    , tagNumber = 16
+    , contents = Constructed
+        ( fromListN 2
+            [ Value
+                { tagClass = Universal
+                , tagNumber = 12
+                , contents = Primitive
+                    [ 0x67
+                    , 0x69
+                    , 0x61
+                    , 0x6e
+                    , 0x74
+                    , 0x73
+                    , 0x74
+                    , 0x72
+                    , 0x69
+                    , 0x6e
+                    , 0x67
+                    , 0x5f
+                    , 0x61
+                    , 0x61
+                    , 0x61
+                    , 0x61
+                    , 0x61
+                    , 0x61
+                    , 0x61
+                    , 0x61
+                    , 0x61
+                    , 0x61
+                    , 0x61
+                    , 0x61
+                    , 0x61
+                    , 0x61
+                    , 0x61
+                    , 0x61
+                    , 0x61
+                    , 0x61
+                    , 0x61
+                    , 0x61
+                    , 0x61
+                    , 0x61
+                    , 0x61
+                    , 0x61
+                    , 0x61
+                    , 0x61
+                    , 0x61
+                    , 0x61
+                    , 0x61
+                    , 0x61
+                    , 0x61
+                    , 0x61
+                    , 0x61
+                    , 0x61
+                    , 0x61
+                    , 0x61
+                    , 0x61
+                    , 0x61
+                    , 0x61
+                    , 0x61
+                    , 0x61
+                    , 0x61
+                    , 0x61
+                    , 0x61
+                    , 0x61
+                    , 0x61
+                    , 0x61
+                    , 0x61
+                    , 0x61
+                    , 0x61
+                    , 0x61
+                    , 0x61
+                    , 0x61
+                    , 0x61
+                    , 0x61
+                    , 0x61
+                    , 0x61
+                    , 0x61
+                    , 0x61
+                    , 0x61
+                    , 0x61
+                    , 0x61
+                    , 0x61
+                    , 0x61
+                    , 0x61
+                    , 0x61
+                    , 0x61
+                    , 0x61
+                    , 0x61
+                    , 0x61
+                    , 0x61
+                    , 0x61
+                    , 0x61
+                    , 0x61
+                    , 0x61
+                    , 0x61
+                    , 0x61
+                    , 0x61
+                    , 0x61
+                    , 0x61
+                    , 0x61
+                    , 0x61
+                    , 0x61
+                    , 0x61
+                    , 0x61
+                    , 0x61
+                    , 0x61
+                    , 0x61
+                    , 0x61
+                    , 0x61
+                    , 0x61
+                    , 0x61
+                    , 0x61
+                    , 0x61
+                    , 0x61
+                    , 0x61
+                    , 0x61
+                    , 0x61
+                    , 0x61
+                    , 0x61
+                    , 0x61
+                    , 0x61
+                    , 0x61
+                    , 0x61
+                    , 0x61
+                    , 0x61
+                    , 0x61
+                    , 0x61
+                    , 0x61
+                    , 0x61
+                    , 0x61
+                    , 0x61
+                    , 0x61
+                    , 0x61
+                    , 0x61
+                    , 0x61
+                    , 0x61
+                    , 0x61
+                    , 0x61
+                    , 0x61
+                    , 0x61
+                    , 0x61
+                    , 0x61
+                    , 0x61
+                    , 0x61
+                    , 0x61
+                    , 0x61
+                    , 0x61
+                    ]
+                }
+            , Value
+                { tagClass = ContextSpecific
+                , tagNumber = 1
+                , contents = Constructed
+                    ( fromListN 1
+                        [ Value
+                            { tagClass = Universal
+                            , tagNumber = 2
+                            , contents = Primitive [ 0x32 ]
+                            }
+                        ]
+                    )
+                }
+            ]
+        )
+    }

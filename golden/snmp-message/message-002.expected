@@ -1,0 +1,25 @@
+Message
+    { version = 1
+    , community =
+        [ 0xbb
+        , 0xbb
+        ]
+    , pdu = GetRequest
+        ( Pdu
+            { requestId = 100000000
+            , errorStatus = 0
+            , errorIndex = 0
+            , varBinds = fromListN 1
+                [ VarBind
+                    { name = fromListN 4
+                        [ 1
+                        , 3
+                        , 6
+                        , 129
+                        ]
+                    , result = Value ( CounterValue 9 )
+                    }
+                ]
+            }
+        )
+    }

@@ -6,7 +6,12 @@ Value
             [ Value
                 { tagClass = Universal
                 , tagNumber = 12
-                , contents = Utf8String "Adam"
+                , contents = Primitive
+                    [ 0x41
+                    , 0x64
+                    , 0x61
+                    , 0x6d
+                    ]
                 }
             , Value
                 { tagClass = ContextSpecific
@@ -16,7 +21,7 @@ Value
                         [ Value
                             { tagClass = Universal
                             , tagNumber = 2
-                            , contents = Integer 50
+                            , contents = Primitive [ 0x32 ]
                             }
                         ]
                     )

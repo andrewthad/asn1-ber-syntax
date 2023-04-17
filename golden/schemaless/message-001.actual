@@ -6,12 +6,12 @@ Value
             [ Value
                 { tagClass = Universal
                 , tagNumber = 2
-                , contents = Integer 1
+                , contents = Primitive [ 0x01 ]
                 }
             , Value
                 { tagClass = Universal
                 , tagNumber = 4
-                , contents = OctetString
+                , contents = Primitive
                     [ 0xbb
                     , 0xbb
                     ]
@@ -24,17 +24,22 @@ Value
                         [ Value
                             { tagClass = Universal
                             , tagNumber = 2
-                            , contents = Integer 100000000
+                            , contents = Primitive
+                                [ 0x05
+                                , 0xf5
+                                , 0xe1
+                                , 0x00
+                                ]
                             }
                         , Value
                             { tagClass = Universal
                             , tagNumber = 2
-                            , contents = Integer 0
+                            , contents = Primitive [ 0x00 ]
                             }
                         , Value
                             { tagClass = Universal
                             , tagNumber = 2
-                            , contents = Integer 0
+                            , contents = Primitive [ 0x00 ]
                             }
                         , Value
                             { tagClass = Universal
@@ -49,19 +54,17 @@ Value
                                                 [ Value
                                                     { tagClass = Universal
                                                     , tagNumber = 6
-                                                    , contents = ObjectIdentifier
-                                                        ( fromListN 4
-                                                            [ 1
-                                                            , 3
-                                                            , 6
-                                                            , 129
-                                                            ]
-                                                        )
+                                                    , contents = Primitive
+                                                        [ 0x2b
+                                                        , 0x06
+                                                        , 0x81
+                                                        , 0x01
+                                                        ]
                                                     }
                                                 , Value
                                                     { tagClass = Application
                                                     , tagNumber = 1
-                                                    , contents = Unresolved [ 0x09 ]
+                                                    , contents = Primitive [ 0x09 ]
                                                     }
                                                 ]
                                             )

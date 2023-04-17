@@ -1,0 +1,26 @@
+Value
+    { tagClass = Universal
+    , tagNumber = 16
+    , contents = Constructed
+        ( fromListN 2
+            [ Value
+                { tagClass = Universal
+                , tagNumber = 12
+                , contents = Primitive
+                    [ 0x61
+                    , 0x61
+                    , 0x61
+                    ]
+                }
+            , Value
+                { tagClass = Universal
+                , tagNumber = 12
+                , contents = Primitive
+                    [ 0x62
+                    , 0x62
+                    , 0x62
+                    ]
+                }
+            ]
+        )
+    }
