@@ -15,7 +15,7 @@ module Asn.Resolve
   , MemberParser
   -- * Combinators
   , fail
-  , integer
+  , int64
   -- TODO bitString
   , octetString
   , null
@@ -50,7 +50,7 @@ import Data.Word (Word32)
 
 import qualified Data.Primitive as PM
 import qualified Asn.Ber as Ber
-
+import qualified Asn.Ber.Primitive.Decode as Decode
 
 newtype Parser a = P { unP :: Path -> Either Path a }
   deriving stock (Functor)
@@ -86,43 +86,37 @@ instance Applicative MemberParser where
 fail :: Parser a
 fail = P $ Left
 
-unresolved :: (Bytes -> Either String a) -> Bytes -> Parser a
-unresolved f bytes = either (const fail) pure (f bytes)
+primitive :: (Bytes -> Maybe a) -> Bytes -> Parser a
+primitive f bytes = maybe fail pure (f bytes)
 
-integer :: Value -> Parser Int64
-integer = \case
-  Value{contents=Integer n} -> pure n
-  Value{contents=Unresolved bytes} -> unresolved Ber.decodeInteger bytes
+int64 :: Value -> Parser Int64
+int64 = \case
+  Value{contents=Primitive bytes} -> primitive Decode.int64 bytes
   _ -> fail
 
 octetString :: Value -> Parser Bytes
 octetString = \case
-  Value{contents=OctetString bs} -> pure bs
-  Value{contents=Unresolved bytes} -> unresolved Ber.decodeOctetString bytes
+  Value{contents=Primitive bytes} -> primitive Decode.octetString bytes
   _ -> fail
 
 null :: Value -> Parser ()
 null = \case
-  Value{contents=Null} -> pure ()
-  Value{contents=Unresolved bytes} -> unresolved Ber.decodeNull bytes
+  Value{contents=Primitive bytes} -> primitive Decode.null bytes
   _ -> fail
 
 oid :: Value -> Parser Oid
 oid = \case
-  Value{contents=ObjectIdentifier objId} -> pure objId
-  Value{contents=Unresolved bytes} -> unresolved Ber.decodeObjectId bytes
+  Value{contents=Primitive bytes} -> primitive Decode.oid bytes
   _ -> fail
 
 utf8String :: Value -> Parser ShortText
 utf8String = \case
-  Value{contents=Utf8String str} -> pure str
-  Value{contents=Unresolved bytes} -> unresolved Ber.decodeUtf8String bytes
+  Value{contents=Primitive bytes} -> primitive Decode.utf8String bytes
   _ -> fail
 
 printableString :: Value -> Parser ShortText
 printableString = \case
-  Value{contents=PrintableString str} -> pure str
-  Value{contents=Unresolved bytes} -> unresolved Ber.decodePrintableString bytes
+  Value{contents=Primitive bytes} -> primitive Decode.printableString bytes
   _ -> fail
 
 sequenceOf :: forall a. (Value -> Parser a) -> Value -> Parser (SmallArray a)

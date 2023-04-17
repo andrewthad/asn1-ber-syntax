@@ -19,11 +19,14 @@ main :: IO ()
 main = defaultMain =<< goldenTests
 
 goldenTests :: IO TestTree
-goldenTests = goldenTestsSchemaless >> goldenResolveTests
+goldenTests = do
+  a <- goldenTestsSchemaless
+  b <- goldenResolveTests
+  pure (testGroup "tests" [a,b])
 
 goldenTestsSchemaless :: IO TestTree
 goldenTestsSchemaless = do
-  files <- findByExtension [".input"] "golden"
+  files <- findByExtension [".input"] "golden/schemaless"
   return $ testGroup "ber" $ flip map files $ \inputName -> do
     let actualName = replaceExtension inputName ".actual"
     let expectedName = replaceExtension inputName ".expected"
@@ -37,7 +40,7 @@ goldenTestsSchemaless = do
 
 goldenResolveTests :: IO TestTree
 goldenResolveTests = do
-  files <- findByExtension [".input-resolver"] "golden"
+  files <- findByExtension [".input-resolver"] "golden/snmp-message"
   return $ testGroup "resolve" $ flip map files $ \inputName -> do
     let actualName = replaceExtension inputName ".actual"
     let expectedName = replaceExtension inputName ".expected"

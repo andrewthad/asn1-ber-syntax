@@ -1,0 +1,6 @@
+packages: .
+
+source-repository-package
+  type: git
+  location: https://github.com/byteverse/bytebuild
+  tag: 2a6f03725f3818b9dd588510ec60ca70745b60f4

@@ -66,7 +66,7 @@ resolveMessage = run message
 
 message :: Parser Value Message
 message = sequence >-> do
-  version <- index 0 >-> integer
+  version <- index 0 >-> int64
   community <- index 1 >-> octetString
   pdu <- index 2 >-> resolvePdu
   pure Message{version,community,pdu}
@@ -74,7 +74,6 @@ message = sequence >-> do
   resolvePdu = chooseTag
     [ (ContextSpecific, 0, GetRequest <$> aPdu)
     , (ContextSpecific, 1, GetNextRequest <$> aPdu)
-    -- , (ContextSpecific, 2, GetBulkRequest <$> bulkPdus) -- TODO
     , (ContextSpecific, 3, Response <$> aPdu)
     , (ContextSpecific, 4, SetRequest <$> aPdu)
     , (ContextSpecific, 5, InformRequest <$> aPdu)
@@ -83,9 +82,9 @@ message = sequence >-> do
     ]
   aPdu :: Parser Value APdu
   aPdu = sequence >-> do
-    requestId <- index 0 >-> integer
-    errorStatus <- index 1 >-> integer
-    errorIndex <- index 2 >-> integer
+    requestId <- index 0 >-> int64
+    errorStatus <- index 1 >-> int64
+    errorIndex <- index 2 >-> int64
     varBinds <- index 3 >-> sequenceOf (sequence >-> varBind)
     pure Pdu{requestId,errorStatus,errorIndex,varBinds}
   varBind :: Parser (SmallArray Value) VarBind
@@ -95,5 +94,5 @@ message = sequence >-> do
       pure VarBind{name,result}
   varBindResult :: Parser Value VarBindResult
   varBindResult = chooseTag
-    [(Application, 1, (Value . CounterValue) <$> integer)]
+    [(Application, 1, (Value . CounterValue) <$> int64)]
     -- TODO

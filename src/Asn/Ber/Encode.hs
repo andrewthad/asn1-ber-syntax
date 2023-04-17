@@ -122,48 +122,8 @@ encodeLength n
 
 encodeContents :: Contents -> Encoder
 encodeContents = \case
-  Integer n -> base256 n
-  Boolean b -> case b of
-    True -> word8 0xFF
-    False -> word8 0x00
-  UtcTime epochSeconds ->
-    let t = Chronos.Time (epochSeconds * 1_000_000_000)
-     in case Chronos.timeToDatetime t of
-          Chronos.Datetime
-            { datetimeDate = Chronos.Date
-              { dateYear = Chronos.Year year
-              , dateMonth = Chronos.Month month
-              , dateDay = Chronos.DayOfMonth day
-              }
-            , datetimeTime = Chronos.TimeOfDay
-              { timeOfDayHour = hour
-              , timeOfDayMinute = minute
-              , timeOfDayNanoseconds = nanoseconds
-              }
-            } -> Leaf $ Bytes.fromByteArray $ BB.run Nat.constant $
-              encodeTwoDigit (rem year 100)
-              `BB.append`
-              encodeTwoDigit (month + 1)
-              `BB.append`
-              encodeTwoDigit day
-              `BB.append`
-              encodeTwoDigit hour
-              `BB.append`
-              encodeTwoDigit minute
-              `BB.append`
-              encodeTwoDigit (fromIntegral @Int64 @Int (quot nanoseconds 1_000_000_000))
-              `BB.append`
-              BB.ascii 'Z'
-  OctetString bs -> bytes bs
-  BitString padBits bs -> word8 padBits <> bytes bs
-  Null -> mempty
-  ObjectIdentifier (Oid arr)
-    | Prim.sizeofPrimArray arr < 2 -> error "Object Identifier must have at least two components"
-    | otherwise -> objectIdentifier arr
-  Utf8String str -> utf8String str
-  PrintableString str -> printableString str
   Constructed arr -> constructed arr
-  Unresolved raw -> bytes raw
+  Primitive raw -> bytes raw
 
 encodeTwoDigit :: Int -> BB.Builder 2
 encodeTwoDigit !n =

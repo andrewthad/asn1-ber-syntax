@@ -6,18 +6,17 @@ Value
             [ Value
                 { tagClass = Universal
                 , tagNumber = 6
-                , contents = ObjectIdentifier
-                    ( fromListN 3
-                        [ 1
-                        , 3
-                        , 20199
-                        ]
-                    )
+                , contents = Primitive
+                    [ 0x2b
+                    , 0x81
+                    , 0x9d
+                    , 0x67
+                    ]
                 }
             , Value
                 { tagClass = Application
                 , tagNumber = 1
-                , contents = Unresolved [ 0x7f ]
+                , contents = Primitive [ 0x7f ]
                 }
             ]
         )
